@@ -22,16 +22,22 @@ def format_display_date(utc_date: str) -> str:
         return utc_date
 
 
-def load_starting_ratings_csv(path: str = "starting_elo.csv") -> tuple[dict[str, float], str | None]:
+def load_starting_ratings_csv(
+    competition: str,
+    path: str = "starting_elo.csv",
+) -> tuple[dict[str, float], str | None]:
     starting_ratings: dict[str, float] = {}
     try:
         with open(path, newline="", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
+                row_competition = row.get("competition")
                 team = row.get("team")
                 rating = row.get("rating")
-                if team is None or rating is None:
-                    raise ValueError("CSV must include team and rating columns")
+                if row_competition is None or team is None or rating is None:
+                    raise ValueError("CSV must include competition, team and rating columns")
+                if row_competition != competition:
+                    continue
                 starting_ratings[team] = float(rating)
         return starting_ratings, None
     except FileNotFoundError:
@@ -294,12 +300,17 @@ st.set_page_config(page_title="Soccer Forecasting Tool", page_icon="⚽", layout
 st.title("⚽ Soccer Forecasting Tool")
 st.caption("Local MVP for football-data match retrieval and SQLite storage")
 
-competition = st.selectbox(
+competition_options = {
+    "Eredivisie": "DED",
+    "Premier League": "PL",
+}
+competition_label = st.selectbox(
     "Competition",
-    options=["DED", "PL", "PD", "SA", "BL1", "FL1"],
+    options=list(competition_options.keys()),
     index=0,
 )
-season = st.number_input("Season", min_value=2000, max_value=2100, value=2025, step=1)
+competition = competition_options[competition_label]
+season = st.selectbox("Season", options=[2025], index=0)
 refresh_clicked = st.button("Refresh matches")
 
 if refresh_clicked:
@@ -312,7 +323,7 @@ if refresh_clicked:
 
 stored_matches = get_matches(competition=competition, season=int(season))
 
-starting_ratings, starting_ratings_info = load_starting_ratings_csv()
+starting_ratings, starting_ratings_info = load_starting_ratings_csv(competition=competition)
 if starting_ratings_info:
     st.info(starting_ratings_info)
 

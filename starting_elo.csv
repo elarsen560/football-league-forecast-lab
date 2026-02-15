@@ -1,19 +1,39 @@
-team,rating
-PSV,2080
-Feyenoord Rotterdam,2029
-AFC Ajax,1933
-AZ,1862
-FC Twente '65,1843
-FC Utrecht,1834
-Go Ahead Eagles,1752
-NEC,1736
-Sparta Rotterdam,1721
-PEC Zwolle,1675
-FC Groningen,1665
-SC Heerenveen,1646
-Fortuna Sittard,1634
-Heracles Almelo,1632
-SBV Excelsior,1540
-Telstar 1963,1540
-FC Volendam,1540
-NAC Breda,1507
+competition,team,rating
+DED,PSV,2080
+DED,Feyenoord Rotterdam,2029
+DED,AFC Ajax,1933
+DED,AZ,1862
+DED,FC Twente '65,1843
+DED,FC Utrecht,1834
+DED,Go Ahead Eagles,1752
+DED,NEC,1736
+DED,Sparta Rotterdam,1721
+DED,PEC Zwolle,1675
+DED,FC Groningen,1665
+DED,SC Heerenveen,1646
+DED,Fortuna Sittard,1634
+DED,Heracles Almelo,1632
+DED,SBV Excelsior,1540
+DED,Telstar 1963,1540
+DED,FC Volendam,1540
+DED,NAC Breda,1507
+PL,Arsenal FC,2233
+PL,Manchester City FC,2271
+PL,Aston Villa FC,2109
+PL,Chelsea FC,2142
+PL,Manchester United FC,2001
+PL,Brentford FC,2063
+PL,Liverpool FC,2285
+PL,AFC Bournemouth,2060
+PL,Everton FC,2002
+PL,Newcastle United FC,2130
+PL,Sunderland AFC,1900
+PL,Brighton & Hove Albion FC,2041
+PL,Leeds United FC,1945
+PL,Fulham FC,2034
+PL,Tottenham Hotspur FC,2011
+PL,Crystal Palace FC,2049
+PL,Nottingham Forest FC,2050
+PL,West Ham United FC,1960
+PL,Burnley FC,1900
+PL,Wolverhampton Wanderers FC,1990
