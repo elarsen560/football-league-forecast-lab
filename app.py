@@ -189,6 +189,106 @@ def run_monte_carlo_simulation(
 
     return position_counts
 
+
+def compute_season_context(stored_matches: list[dict], starting_ratings: dict[str, float]) -> dict:
+    finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
+    ratings, pregame_ratings = compute_elo_ratings(finished_matches, starting_ratings, include_pregame=True)
+
+    probabilities_table = []
+    upcoming_probabilities = []
+    for match in upcoming_matches:
+        home_team = match.get("home_team")
+        away_team = match.get("away_team")
+        utc_date = match.get("utc_date")
+        matchday = match.get("matchday")
+        if not home_team or not away_team:
+            continue
+        p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
+        home_elo = ratings.get(home_team, 1500.0)
+        away_elo = ratings.get(away_team, 1500.0)
+        upcoming_probabilities.append(
+            {
+                "home_team": home_team,
+                "away_team": away_team,
+                "p_home": p_home,
+                "p_draw": p_draw,
+                "p_away": p_away,
+            }
+        )
+        probabilities_table.append(
+            {
+                "date": format_display_date(utc_date),
+                "matchday": matchday,
+                "home_team": home_team,
+                "home_elo": round(home_elo),
+                "away_team": away_team,
+                "away_elo": round(away_elo),
+                "p_home": f"{p_home * 100:.1f}",
+                "p_draw": f"{p_draw * 100:.1f}",
+                "p_away": f"{p_away * 100:.1f}",
+            }
+        )
+
+    completed_table = []
+    for match in completed_matches:
+        match_id = match.get("match_id")
+        home_team = match.get("home_team")
+        away_team = match.get("away_team")
+        pregame = pregame_ratings.get(match_id, {})
+        pregame_home_elo = pregame.get("pregame_home_elo", starting_ratings.get(home_team, 1500.0))
+        pregame_away_elo = pregame.get("pregame_away_elo", starting_ratings.get(away_team, 1500.0))
+        postgame_home_elo = pregame.get("postgame_home_elo", pregame_home_elo)
+        completed_table.append(
+            {
+                "matchday": match.get("matchday"),
+                "date": format_display_date(match.get("utc_date")),
+                "home_team": home_team,
+                "pregame_home_elo": round(pregame_home_elo),
+                "away_team": away_team,
+                "pregame_away_elo": round(pregame_away_elo),
+                "home_score": match.get("home_score"),
+                "away_score": match.get("away_score"),
+                "home_elo_change": round(postgame_home_elo - pregame_home_elo),
+            }
+        )
+
+    elo_change_values = {team: rating - starting_ratings.get(team, 1500.0) for team, rating in ratings.items()}
+    elo_change_rank = {
+        team: rank
+        for rank, (team, _) in enumerate(
+            sorted(elo_change_values.items(), key=lambda item: item[1], reverse=True),
+            start=1,
+        )
+    }
+    ratings_table = [
+        {
+            "elo_rank": rank,
+            "team": team,
+            "rating": round(rating),
+            "elo_change": round(elo_change_values[team]),
+            "elo_change_rank": int(elo_change_rank[team]),
+        }
+        for rank, (team, rating) in enumerate(
+            sorted(ratings.items(), key=lambda item: item[1], reverse=True),
+            start=1,
+        )
+    ]
+
+    standings_table = compute_league_standings(finished_matches)
+
+    return {
+        "finished_matches": finished_matches,
+        "completed_matches": completed_matches,
+        "upcoming_matches": upcoming_matches,
+        "ratings": ratings,
+        "pregame_ratings": pregame_ratings,
+        "probabilities_table": probabilities_table,
+        "upcoming_probabilities": upcoming_probabilities,
+        "completed_table": completed_table,
+        "ratings_table": ratings_table,
+        "standings_table": standings_table,
+    }
+
 st.set_page_config(page_title="Soccer Forecasting Tool", page_icon="⚽", layout="wide")
 
 st.title("⚽ Soccer Forecasting Tool")
@@ -212,94 +312,17 @@ if refresh_clicked:
 
 stored_matches = get_matches(competition=competition, season=int(season))
 
-finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
 starting_ratings, starting_ratings_info = load_starting_ratings_csv()
 if starting_ratings_info:
     st.info(starting_ratings_info)
 
-ratings, pregame_ratings = compute_elo_ratings(finished_matches, starting_ratings, include_pregame=True)
-
-probabilities_table = []
-upcoming_probabilities = []
-for match in upcoming_matches:
-    home_team = match.get("home_team")
-    away_team = match.get("away_team")
-    utc_date = match.get("utc_date")
-    matchday = match.get("matchday")
-    if not home_team or not away_team:
-        continue
-    p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
-    home_elo = ratings.get(home_team, 1500.0)
-    away_elo = ratings.get(away_team, 1500.0)
-    upcoming_probabilities.append(
-        {
-            "home_team": home_team,
-            "away_team": away_team,
-            "p_home": p_home,
-            "p_draw": p_draw,
-            "p_away": p_away,
-        }
-    )
-    probabilities_table.append(
-        {
-            "date": format_display_date(utc_date),
-            "matchday": matchday,
-            "home_team": home_team,
-            "home_elo": round(home_elo),
-            "away_team": away_team,
-            "away_elo": round(away_elo),
-            "p_home": f"{p_home * 100:.1f}",
-            "p_draw": f"{p_draw * 100:.1f}",
-            "p_away": f"{p_away * 100:.1f}",
-        }
-    )
-
-completed_table = []
-for match in completed_matches:
-    match_id = match.get("match_id")
-    home_team = match.get("home_team")
-    away_team = match.get("away_team")
-    pregame = pregame_ratings.get(match_id, {})
-    pregame_home_elo = pregame.get("pregame_home_elo", starting_ratings.get(home_team, 1500.0))
-    pregame_away_elo = pregame.get("pregame_away_elo", starting_ratings.get(away_team, 1500.0))
-    postgame_home_elo = pregame.get("postgame_home_elo", pregame_home_elo)
-    completed_table.append(
-        {
-            "matchday": match.get("matchday"),
-            "date": format_display_date(match.get("utc_date")),
-            "home_team": home_team,
-            "pregame_home_elo": round(pregame_home_elo),
-            "away_team": away_team,
-            "pregame_away_elo": round(pregame_away_elo),
-            "home_score": match.get("home_score"),
-            "away_score": match.get("away_score"),
-            "home_elo_change": round(postgame_home_elo - pregame_home_elo),
-        }
-    )
-
-elo_change_values = {team: rating - starting_ratings.get(team, 1500.0) for team, rating in ratings.items()}
-elo_change_rank = {
-    team: rank
-    for rank, (team, _) in enumerate(
-        sorted(elo_change_values.items(), key=lambda item: item[1], reverse=True),
-        start=1,
-    )
-}
-ratings_table = [
-    {
-        "elo_rank": rank,
-        "team": team,
-        "rating": round(rating),
-        "elo_change": round(elo_change_values[team]),
-        "elo_change_rank": int(elo_change_rank[team]),
-    }
-    for rank, (team, rating) in enumerate(
-        sorted(ratings.items(), key=lambda item: item[1], reverse=True),
-        start=1,
-    )
-]
-
-standings_table = compute_league_standings(finished_matches)
+season_context = compute_season_context(stored_matches, starting_ratings)
+finished_matches = season_context["finished_matches"]
+probabilities_table = season_context["probabilities_table"]
+completed_table = season_context["completed_table"]
+ratings_table = season_context["ratings_table"]
+standings_table = season_context["standings_table"]
+upcoming_probabilities = season_context["upcoming_probabilities"]
 
 data_elo_tab, simulations_tab = st.tabs(["Data & Elo", "Simulations"])
 
@@ -381,7 +404,7 @@ with simulations_tab:
                 st.info("Invalid seed. Using non-fixed randomness.")
                 seed_value = None
 
-        current_standings = compute_league_standings(finished_matches)
+        current_standings = season_context["standings_table"]
         standings_by_team = {row["team"]: row for row in current_standings}
         teams_set = set(standings_by_team.keys())
         for match in upcoming_probabilities:
