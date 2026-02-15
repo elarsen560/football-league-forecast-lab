@@ -88,3 +88,31 @@ def get_matches(competition: str, season: int) -> list[dict[str, Any]]:
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def get_team_matches(competition: str, season: int, team_name: str) -> list[dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                match_id,
+                competition,
+                season,
+                utc_date,
+                status,
+                matchday,
+                home_team,
+                away_team,
+                home_score,
+                away_score
+            FROM matches
+            WHERE competition = ?
+              AND season = ?
+              AND (home_team = ? OR away_team = ?)
+            ORDER BY utc_date ASC
+            """,
+            (competition, season, team_name, team_name),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
