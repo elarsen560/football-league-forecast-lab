@@ -297,8 +297,7 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
 
 st.set_page_config(page_title="Soccer Forecasting Tool", page_icon="⚽", layout="wide")
 
-st.title("⚽ Soccer Forecasting Tool")
-st.caption("Local MVP for football-data match retrieval and SQLite storage")
+st.title("Football League Forecast Lab")
 
 competition_options = {
     "Eredivisie": "DED",
@@ -404,7 +403,7 @@ with simulations_tab:
         "Number of simulations",
         min_value=100,
         max_value=20000,
-        value=1000,
+        value=10000,
         step=100,
     )
     seed_text = st.text_input("Random seed (optional)", value="")
@@ -719,3 +718,8 @@ with team_deep_dive_tab:
             )
         else:
             st.info("No remaining fixtures for selected team.")
+
+st.divider()
+st.caption("Model v1.0, 2026/02/14")
+st.caption("K=20 | Home Advantage=100 | Goal-Difference Multiplier | Dynamic Draw Model")
+st.caption("Data: football-data.org")
