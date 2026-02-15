@@ -457,7 +457,7 @@ with simulations_tab:
 
         heatmap = (
             alt.Chart(heatmap_df)
-            .mark_rect(stroke="#d9d9d9", strokeWidth=0.6)
+            .mark_rect(stroke="#d9d9d9", strokeWidth=0.6, opacity=1.0)
             .encode(
                 x=alt.X(
                     "position_num:O",
@@ -476,10 +476,15 @@ with simulations_tab:
                         labelFontSize=11,
                     ),
                 ),
-                color=alt.Color(
-                    "percentage:Q",
-                    title="Probability (%)",
-                    scale=alt.Scale(domain=[0, 50], clamp=True, range=["#ffffff", "#1f77b4"]),
+                color=alt.condition(
+                    alt.datum.percentage <= 0,
+                    alt.value("#ffffff"),
+                    alt.Color(
+                        "percentage:Q",
+                        title="Probability (%)",
+                        scale=alt.Scale(domain=[0, 50], clamp=True, range=["#ffffff", "#08306b"]),
+                        legend=None,
+                    ),
                 ),
                 tooltip=[
                     alt.Tooltip("team:N", title="Team"),
@@ -698,6 +703,7 @@ with team_deep_dive_tab:
             st.dataframe(
                 remaining_df,
                 use_container_width=True,
+                hide_index=True,
                 column_config=remaining_column_config,
             )
         else:
