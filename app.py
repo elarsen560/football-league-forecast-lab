@@ -295,7 +295,7 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
         "standings_table": standings_table,
     }
 
-st.set_page_config(page_title="Soccer Forecasting Tool", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="Football League Forecasting Tool", page_icon="⚽", layout="wide")
 
 st.title("Football League Forecast Lab")
 
