@@ -708,17 +708,3 @@ with team_deep_dive_tab:
             )
         else:
             st.info("No remaining fixtures for selected team.")
-
-        simulation_matrix = st.session_state.get("simulation_position_matrix")
-        if simulation_matrix is not None and isinstance(simulation_matrix, pd.DataFrame) and not simulation_matrix.empty:
-            team_sim = simulation_matrix[simulation_matrix["team"] == selected_team]
-            if not team_sim.empty:
-                team_sim = team_sim.iloc[0].to_dict()
-                team_sim_rows = []
-                for col, value in team_sim.items():
-                    if col == "team":
-                        continue
-                    team_sim_rows.append({"position": col, "probability": round(float(value), 1)})
-                team_sim_rows = sorted(team_sim_rows, key=lambda r: int(r["position"]))
-                st.subheader("Finishing-position probabilities")
-                st.dataframe(team_sim_rows, use_container_width=True)
