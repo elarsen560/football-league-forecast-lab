@@ -720,6 +720,9 @@ with team_deep_dive_tab:
             st.info("No remaining fixtures for selected team.")
 
 st.divider()
-st.caption("Model v1.0, 2026/02/14")
-st.caption("K=20 | Home Advantage=100 | Goal-Difference Multiplier | Dynamic Draw Model")
-st.caption("Data: football-data.org")
+st.caption("Model v0.1.0")
+st.caption("K = 20")
+st.caption("Home Advantage = 100")
+st.caption("Goal-Difference Multiplier = ON")
+st.caption("Dynamic Draw Model = ON")
+st.caption("Data source: football-data.org")
