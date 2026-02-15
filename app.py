@@ -721,6 +721,7 @@ with team_deep_dive_tab:
 
 st.divider()
 st.caption("Model v0.1.0")
+st.caption("Last updated 2026/02/14")
 st.caption("K = 20")
 st.caption("Home Advantage = 100")
 st.caption("Goal-Difference Multiplier = ON")
