@@ -22,6 +22,39 @@ def format_display_date(utc_date: str) -> str:
         return utc_date
 
 
+def load_starting_ratings_csv(path: str = "starting_elo.csv") -> tuple[dict[str, float], str | None]:
+    starting_ratings: dict[str, float] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                team = row.get("team")
+                rating = row.get("rating")
+                if team is None or rating is None:
+                    raise ValueError("CSV must include team and rating columns")
+                starting_ratings[team] = float(rating)
+        return starting_ratings, None
+    except FileNotFoundError:
+        return {}, "starting_elo.csv not found. Using default starting Elo ratings (1500)."
+    except Exception:
+        return {}, "Failed to parse starting_elo.csv. Using default starting Elo ratings (1500)."
+
+
+def split_matches_by_status(stored_matches: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    finished_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
+    finished_matches = sorted(finished_matches, key=lambda m: m.get("utc_date") or "")
+
+    completed_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
+    completed_matches = sorted(completed_matches, key=lambda m: m.get("utc_date") or "", reverse=True)
+
+    upcoming_matches = [m for m in stored_matches if m.get("status") in {"SCHEDULED", "TIMED"}]
+    upcoming_matches = sorted(
+        upcoming_matches,
+        key=lambda m: (m.get("matchday") if m.get("matchday") is not None else 9999, m.get("utc_date") or ""),
+    )
+    return finished_matches, completed_matches, upcoming_matches
+
+
 def compute_league_standings(matches: list[dict]) -> list[dict]:
     standings: dict[str, dict] = {}
 
@@ -179,32 +212,13 @@ if refresh_clicked:
 
 stored_matches = get_matches(competition=competition, season=int(season))
 
-finished_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
-finished_matches = sorted(finished_matches, key=lambda m: m.get("utc_date") or "")
-starting_ratings = {}
-try:
-    with open("starting_elo.csv", newline="", encoding="utf-8") as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            team = row.get("team")
-            rating = row.get("rating")
-            if team is None or rating is None:
-                raise ValueError("CSV must include team and rating columns")
-            starting_ratings[team] = float(rating)
-except FileNotFoundError:
-    st.info("starting_elo.csv not found. Using default starting Elo ratings (1500).")
-    starting_ratings = {}
-except Exception:
-    st.info("Failed to parse starting_elo.csv. Using default starting Elo ratings (1500).")
-    starting_ratings = {}
+finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
+starting_ratings, starting_ratings_info = load_starting_ratings_csv()
+if starting_ratings_info:
+    st.info(starting_ratings_info)
 
 ratings, pregame_ratings = compute_elo_ratings(finished_matches, starting_ratings, include_pregame=True)
 
-upcoming_matches = [m for m in stored_matches if m.get("status") in {"SCHEDULED", "TIMED"}]
-upcoming_matches = sorted(
-    upcoming_matches,
-    key=lambda m: (m.get("matchday") if m.get("matchday") is not None else 9999, m.get("utc_date") or ""),
-)
 probabilities_table = []
 upcoming_probabilities = []
 for match in upcoming_matches:
@@ -240,8 +254,6 @@ for match in upcoming_matches:
         }
     )
 
-completed_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
-completed_matches = sorted(completed_matches, key=lambda m: m.get("utc_date") or "", reverse=True)
 completed_table = []
 for match in completed_matches:
     match_id = match.get("match_id")
