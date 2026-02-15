@@ -323,8 +323,12 @@ completed_table = season_context["completed_table"]
 ratings_table = season_context["ratings_table"]
 standings_table = season_context["standings_table"]
 upcoming_probabilities = season_context["upcoming_probabilities"]
+ratings = season_context["ratings"]
+completed_matches = season_context["completed_matches"]
+upcoming_matches = season_context["upcoming_matches"]
+pregame_ratings = season_context["pregame_ratings"]
 
-data_elo_tab, simulations_tab = st.tabs(["Data & Elo", "Simulations"])
+data_elo_tab, simulations_tab, team_deep_dive_tab = st.tabs(["Data & Elo", "Simulations", "Team Deep Dive"])
 
 with data_elo_tab:
     st.subheader("Upcoming Match Probabilities")
@@ -442,6 +446,7 @@ with simulations_tab:
             simulation_rows.append(row)
 
         simulation_df = pd.DataFrame(simulation_rows)
+        st.session_state["simulation_position_matrix"] = simulation_df.copy()
         heatmap_df = simulation_df.melt(
             id_vars="team",
             var_name="position",
@@ -517,3 +522,197 @@ with simulations_tab:
             use_container_width=True,
             column_config=simulation_column_config,
         )
+
+with team_deep_dive_tab:
+    teams_for_select = sorted(
+        list(ratings.keys()),
+        key=lambda team: (-starting_ratings.get(team, 1500.0), team),
+    )
+    if not teams_for_select:
+        st.info("No teams available for deep dive.")
+    else:
+        selected_team = st.selectbox("Team", options=teams_for_select, index=0)
+
+        current_elo = ratings.get(selected_team, 1500.0)
+        starting_elo = starting_ratings.get(selected_team, 1500.0)
+        elo_change = current_elo - starting_elo
+        standings_lookup = {row["team"]: row for row in standings_table}
+        team_standing = standings_lookup.get(selected_team, {})
+        current_rank = team_standing.get("rank")
+        current_points = team_standing.get("points", 0)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Current Elo", f"{round(current_elo)}")
+        c2.metric("Elo Change", f"{round(elo_change)}")
+        c3.metric("League Rank / Points", f"{current_rank} / {current_points}" if current_rank else f"- / {current_points}")
+
+        team_completed_matches = [
+            m
+            for m in completed_matches
+            if m.get("home_team") == selected_team or m.get("away_team") == selected_team
+        ]
+        team_completed_matches = sorted(team_completed_matches, key=lambda m: m.get("utc_date") or "")
+
+        elo_evolution_rows = []
+        for match in team_completed_matches:
+            match_id = match.get("match_id")
+            home_team = match.get("home_team")
+            away_team = match.get("away_team")
+            prepost = pregame_ratings.get(match_id, {})
+            is_home = home_team == selected_team
+            postgame_team_elo = (
+                prepost.get("postgame_home_elo") if is_home else prepost.get("postgame_away_elo")
+            )
+            if postgame_team_elo is None:
+                continue
+            elo_evolution_rows.append(
+                {
+                    "utc_date": match.get("utc_date"),
+                    "date": format_display_date(match.get("utc_date")),
+                    "elo": postgame_team_elo,
+                }
+            )
+
+        if elo_evolution_rows:
+            elo_chart_df = pd.DataFrame(elo_evolution_rows)
+            elo_chart_df["date_dt"] = pd.to_datetime(elo_chart_df["utc_date"], utc=True, errors="coerce")
+            elo_chart_df = elo_chart_df.dropna(subset=["date_dt"]).sort_values("date_dt")
+            if not elo_chart_df.empty:
+                elo_min = float(elo_chart_df["elo"].min())
+                elo_max = float(elo_chart_df["elo"].max())
+                margin = max(5.0, (elo_max - elo_min) * 0.05)
+                y_scale = alt.Scale(domain=[elo_min - margin, elo_max + margin])
+
+                line = (
+                    alt.Chart(elo_chart_df)
+                    .mark_line(strokeWidth=1.5)
+                    .encode(
+                        x=alt.X("date_dt:T", title="Date", axis=alt.Axis(format="%b %d, %Y")),
+                        y=alt.Y("elo:Q", title="Elo", scale=y_scale),
+                        tooltip=[
+                            alt.Tooltip("date:N", title="Date"),
+                            alt.Tooltip("elo:Q", title="Elo", format=".1f"),
+                        ],
+                    )
+                )
+                points = (
+                    alt.Chart(elo_chart_df)
+                    .mark_circle(size=45)
+                    .encode(
+                        x=alt.X("date_dt:T"),
+                        y=alt.Y("elo:Q", scale=y_scale),
+                        tooltip=[
+                            alt.Tooltip("date:N", title="Date"),
+                            alt.Tooltip("elo:Q", title="Elo", format=".1f"),
+                        ],
+                    )
+                )
+                st.altair_chart((line + points).properties(height=320), use_container_width=True)
+            else:
+                st.info("No completed matches with valid dates for Elo evolution.")
+        else:
+            st.info("No completed matches available for Elo evolution.")
+
+        team_completed_rows = []
+        for match in sorted(team_completed_matches, key=lambda m: m.get("utc_date") or "", reverse=True):
+            match_id = match.get("match_id")
+            home_team = match.get("home_team")
+            away_team = match.get("away_team")
+            home_score = match.get("home_score")
+            away_score = match.get("away_score")
+            is_home = home_team == selected_team
+            opponent = away_team if is_home else home_team
+            home_away = "Home" if is_home else "Away"
+            prepost = pregame_ratings.get(match_id, {})
+            pregame_team_elo = prepost.get("pregame_home_elo") if is_home else prepost.get("pregame_away_elo")
+            pregame_opponent_elo = prepost.get("pregame_away_elo") if is_home else prepost.get("pregame_home_elo")
+            postgame_team_elo = prepost.get("postgame_home_elo") if is_home else prepost.get("postgame_away_elo")
+            if pregame_team_elo is None:
+                pregame_team_elo = starting_ratings.get(selected_team, 1500.0)
+            if pregame_opponent_elo is None:
+                pregame_opponent_elo = starting_ratings.get(opponent, 1500.0)
+            if postgame_team_elo is None:
+                postgame_team_elo = pregame_team_elo
+            team_completed_rows.append(
+                {
+                    "matchday": match.get("matchday"),
+                    "date": format_display_date(match.get("utc_date")),
+                    "opponent": opponent,
+                    "home_away": home_away,
+                    "score": f"{home_score}-{away_score}",
+                    "pregame_team_elo": round(pregame_team_elo),
+                    "pregame_opponent_elo": round(pregame_opponent_elo),
+                    "team_elo_change": round(postgame_team_elo - pregame_team_elo),
+                }
+            )
+
+        st.subheader("Completed matches")
+        if team_completed_rows:
+            st.dataframe(team_completed_rows, use_container_width=True)
+        else:
+            st.info("No completed matches for selected team.")
+
+        team_upcoming_matches = [
+            m
+            for m in upcoming_matches
+            if m.get("home_team") == selected_team or m.get("away_team") == selected_team
+        ]
+        team_upcoming_matches = sorted(
+            team_upcoming_matches,
+            key=lambda m: (m.get("matchday") if m.get("matchday") is not None else 9999, m.get("utc_date") or ""),
+        )
+        remaining_rows = []
+        for match in team_upcoming_matches:
+            home_team = match.get("home_team")
+            away_team = match.get("away_team")
+            is_home = home_team == selected_team
+            opponent = away_team if is_home else home_team
+            home_away = "Home" if is_home else "Away"
+            team_elo = ratings.get(selected_team, 1500.0)
+            opponent_elo = ratings.get(opponent, 1500.0)
+            p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
+            p_win = p_home if is_home else p_away
+            p_loss = p_away if is_home else p_home
+            remaining_rows.append(
+                {
+                    "matchday": match.get("matchday"),
+                    "date": format_display_date(match.get("utc_date")),
+                    "opponent": opponent,
+                    "home_away": home_away,
+                    "team_elo": round(team_elo),
+                    "opponent_elo": round(opponent_elo),
+                    "p_win": round(p_win * 100, 1),
+                    "p_draw": round(p_draw * 100, 1),
+                    "p_loss": round(p_loss * 100, 1),
+                }
+            )
+
+        st.subheader("Remaining fixtures")
+        if remaining_rows:
+            remaining_df = pd.DataFrame(remaining_rows)
+            remaining_column_config = {
+                "p_win": st.column_config.NumberColumn(format="%.1f"),
+                "p_draw": st.column_config.NumberColumn(format="%.1f"),
+                "p_loss": st.column_config.NumberColumn(format="%.1f"),
+            }
+            st.dataframe(
+                remaining_df,
+                use_container_width=True,
+                column_config=remaining_column_config,
+            )
+        else:
+            st.info("No remaining fixtures for selected team.")
+
+        simulation_matrix = st.session_state.get("simulation_position_matrix")
+        if simulation_matrix is not None and isinstance(simulation_matrix, pd.DataFrame) and not simulation_matrix.empty:
+            team_sim = simulation_matrix[simulation_matrix["team"] == selected_team]
+            if not team_sim.empty:
+                team_sim = team_sim.iloc[0].to_dict()
+                team_sim_rows = []
+                for col, value in team_sim.items():
+                    if col == "team":
+                        continue
+                    team_sim_rows.append({"position": col, "probability": round(float(value), 1)})
+                team_sim_rows = sorted(team_sim_rows, key=lambda r: int(r["position"]))
+                st.subheader("Finishing-position probabilities")
+                st.dataframe(team_sim_rows, use_container_width=True)
