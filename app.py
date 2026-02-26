@@ -1,6 +1,6 @@
 import csv
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 
 import altair as alt
 import pandas as pd
@@ -38,8 +38,8 @@ MONTE_CARLO_DEFAULT = 10000
 MONTE_CARLO_STEP = 100
 
 FOOTER_LINES = [
-    "Model v0.1.1",
-    "Last updated 2026/02/25",
+    "Model v0.1.2",
+    "Last updated 2026/02/26",
     "K = 20",
     "Home Advantage = 100",
     "Goal-Difference Multiplier = ON",
@@ -69,6 +69,14 @@ def clean_display_df(df: pd.DataFrame) -> pd.DataFrame:
 def full_table_height(df: pd.DataFrame) -> int:
     """Return a consistent full-table height so all rows render without vertical scrolling."""
     return TABLE_ROW_HEIGHT * (len(df) + 1) + TABLE_EXTRA_HEIGHT
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_matches_cached(competition: str, season: int) -> tuple[list[dict], str]:
+    """Fetch matches from API with a shared 1-hour cache and return fetch timestamp (UTC)."""
+    matches = fetch_matches(competition=competition, season=season)
+    fetched_at_utc = datetime.now(timezone.utc).isoformat()
+    return matches, fetched_at_utc
 
 
 def load_starting_ratings_csv(
@@ -359,15 +367,17 @@ competition_label = st.selectbox(
 )
 competition = COMPETITION_OPTIONS[competition_label]
 season = st.selectbox("Season", options=SEASON_OPTIONS, index=0)
-refresh_clicked = st.button("Refresh matches")
+data_last_updated_display = "Unavailable"
+try:
+    fetched_matches, fetched_at_utc = fetch_matches_cached(competition=competition, season=int(season))
+    save_matches(fetched_matches, competition=competition, season=int(season))
+    fetched_at_dt = datetime.fromisoformat(fetched_at_utc)
+    data_last_updated_display = fetched_at_dt.strftime("%b %d, %Y %H:%M UTC")
+except Exception:
+    st.warning("Failed to refresh API data. Showing most recent local data if available; it may be stale.")
+    data_last_updated_display = "Unavailable (using local DB fallback)"
 
-if refresh_clicked:
-    try:
-        fetched = fetch_matches(competition=competition, season=int(season))
-        save_matches(fetched, competition=competition, season=int(season))
-        st.success(f"Refreshed {len(fetched)} matches for {competition} {int(season)}")
-    except Exception as exc:
-        st.error(str(exc))
+st.caption(f"Data last updated: {data_last_updated_display} (refreshes hourly)")
 
 stored_matches = get_matches(competition=competition, season=int(season))
 
