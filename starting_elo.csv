@@ -1,4 +1,4 @@
-competition,team,rating
+﻿competition,team,rating
 DED,PSV,2080
 DED,Feyenoord Rotterdam,2029
 DED,AFC Ajax,1933
@@ -37,3 +37,61 @@ PL,Nottingham Forest FC,2050
 PL,West Ham United FC,1960
 PL,Burnley FC,1900
 PL,Wolverhampton Wanderers FC,1990
+BL1,Bayer 04 Leverkusen,2235
+BL1,FC Bayern München,2253
+BL1,Borussia Dortmund,2050
+BL1,RB Leipzig,2096
+BL1,VfB Stuttgart,2054
+BL1,Eintracht Frankfurt,2048
+BL1,SC Freiburg,1987
+BL1,1. FSV Mainz 05,2040
+BL1,1. FC Heidenheim 1846,1841
+BL1,TSG 1899 Hoffenheim,1894
+BL1,1. FC Union Berlin,1896
+BL1,SV Werder Bremen,1937
+BL1,VfL Wolfsburg,1990
+BL1,Borussia Mönchengladbach,1960
+BL1,FC Augsburg,1949
+BL1,FC St. Pauli 1910,1861
+BL1,Hamburger SV,1835
+BL1,1. FC Köln,1839
+SA,FC Internazionale Milano,2213
+SA,AC Milan,2133
+SA,Como 1907,2058
+SA,AS Roma,2113
+SA,SSC Napoli,2096
+SA,Juventus FC,2074
+SA,Atalanta BC,2118
+SA,SS Lazio,2004
+SA,US Sassuolo Calcio,1891
+SA,Bologna FC 1909,2007
+SA,Parma Calcio 1913,1877
+SA,Genoa CFC,1900
+SA,ACF Fiorentina,1934
+SA,Udinese Calcio,1873
+SA,Cagliari Calcio,1863
+SA,US Cremonese,1795
+SA,US Lecce,1813
+SA,Torino FC,1886
+SA,AC Pisa 1909,1746
+SA,Hellas Verona FC,1760
+PD,FC Barcelona,2299
+PD,Real Madrid CF,2237
+PD,Villarreal CF,2023
+PD,Club Atlético de Madrid,2199
+PD,Real Betis Balompié,2074
+PD,RC Celta de Vigo,2033
+PD,RCD Espanyol de Barcelona,1918
+PD,Athletic Club,2014
+PD,CA Osasuna,2016
+PD,Real Sociedad de Fútbol,2021
+PD,Girona FC,1930
+PD,Sevilla FC,1904
+PD,Getafe CF,1898
+PD,Deportivo Alavés,1916
+PD,Rayo Vallecano de Madrid,1950
+PD,Valencia CF,1959
+PD,Elche CF,1875
+PD,RCD Mallorca,1911
+PD,Levante UD,1838
+PD,Real Oviedo,1828

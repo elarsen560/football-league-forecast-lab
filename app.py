@@ -12,6 +12,41 @@ from elo import compute_elo_ratings, predict_match
 
 init_db()
 
+DEFAULT_ELO = 1500.0
+FINISHED_STATUS = "FINISHED"
+UPCOMING_STATUSES = {"SCHEDULED", "TIMED"}
+MISSING_STARTING_ELO_MSG = "starting_elo.csv not found. Using default starting Elo ratings (1500)."
+INVALID_STARTING_ELO_MSG = "Failed to parse starting_elo.csv. Using default starting Elo ratings (1500)."
+NO_UPCOMING_MSG = "No upcoming matches available for probability prediction."
+NO_COMPLETED_MSG = "No FINISHED matches available."
+NO_RATINGS_MSG = "No FINISHED matches available to compute Elo ratings."
+NO_STANDINGS_MSG = "No completed matches available to compute standings."
+TABLE_ROW_HEIGHT = 35
+TABLE_EXTRA_HEIGHT = 20
+PROBABILITY_COLUMNS = ("p_win", "p_draw", "p_loss")
+COMPETITION_OPTIONS = {
+    "Eredivisie": "DED",
+    "Premier League": "PL",
+    "Bundesliga": "BL1",
+    "Serie A": "SA",
+    "La Liga": "PD",
+}
+SEASON_OPTIONS = [2025]
+MONTE_CARLO_MIN = 100
+MONTE_CARLO_MAX = 20000
+MONTE_CARLO_DEFAULT = 10000
+MONTE_CARLO_STEP = 100
+
+FOOTER_LINES = [
+    "Model v0.1.1",
+    "Last updated 2026/02/25",
+    "K = 20",
+    "Home Advantage = 100",
+    "Goal-Difference Multiplier = ON",
+    "Dynamic Draw Model = ON",
+    "Data source: football-data.org",
+]
+
 
 def format_display_date(utc_date: str) -> str:
     if not utc_date:
@@ -22,13 +57,28 @@ def format_display_date(utc_date: str) -> str:
         return utc_date
 
 
+def clean_display_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop common index-like columns and return a clean, reindexed DataFrame."""
+    df = df.drop(
+        columns=[col for col in df.columns if col == "index" or str(col).startswith("Unnamed")],
+        errors="ignore",
+    )
+    return df.reset_index(drop=True)
+
+
+def full_table_height(df: pd.DataFrame) -> int:
+    """Return a consistent full-table height so all rows render without vertical scrolling."""
+    return TABLE_ROW_HEIGHT * (len(df) + 1) + TABLE_EXTRA_HEIGHT
+
+
 def load_starting_ratings_csv(
     competition: str,
     path: str = "starting_elo.csv",
 ) -> tuple[dict[str, float], str | None]:
+    """Load competition-filtered seed Elo ratings from CSV."""
     starting_ratings: dict[str, float] = {}
     try:
-        with open(path, newline="", encoding="utf-8") as csvfile:
+        with open(path, newline="", encoding="utf-8-sig") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 row_competition = row.get("competition")
@@ -41,19 +91,20 @@ def load_starting_ratings_csv(
                 starting_ratings[team] = float(rating)
         return starting_ratings, None
     except FileNotFoundError:
-        return {}, "starting_elo.csv not found. Using default starting Elo ratings (1500)."
+        return {}, MISSING_STARTING_ELO_MSG
     except Exception:
-        return {}, "Failed to parse starting_elo.csv. Using default starting Elo ratings (1500)."
+        return {}, INVALID_STARTING_ELO_MSG
 
 
 def split_matches_by_status(stored_matches: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
-    finished_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
+    """Split matches into finished/completed/upcoming sets with app-specific ordering."""
+    finished_matches = [m for m in stored_matches if m.get("status") == FINISHED_STATUS]
     finished_matches = sorted(finished_matches, key=lambda m: m.get("utc_date") or "")
 
-    completed_matches = [m for m in stored_matches if m.get("status") == "FINISHED"]
+    completed_matches = [m for m in stored_matches if m.get("status") == FINISHED_STATUS]
     completed_matches = sorted(completed_matches, key=lambda m: m.get("utc_date") or "", reverse=True)
 
-    upcoming_matches = [m for m in stored_matches if m.get("status") in {"SCHEDULED", "TIMED"}]
+    upcoming_matches = [m for m in stored_matches if m.get("status") in UPCOMING_STATUSES]
     upcoming_matches = sorted(
         upcoming_matches,
         key=lambda m: (m.get("matchday") if m.get("matchday") is not None else 9999, m.get("utc_date") or ""),
@@ -162,6 +213,7 @@ def run_monte_carlo_simulation(
     num_simulations: int,
     seed: int | None = None,
 ) -> dict[str, list[int]]:
+    """Run Monte Carlo season outcomes using fixed per-match probabilities."""
     rng = random.Random(seed)
     position_counts = {team: [0] * len(teams) for team in teams}
 
@@ -197,6 +249,7 @@ def run_monte_carlo_simulation(
 
 
 def compute_season_context(stored_matches: list[dict], starting_ratings: dict[str, float]) -> dict:
+    """Compute all season-scoped derived structures used by UI tabs."""
     finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
     ratings, pregame_ratings = compute_elo_ratings(finished_matches, starting_ratings, include_pregame=True)
 
@@ -210,8 +263,8 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
         if not home_team or not away_team:
             continue
         p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
-        home_elo = ratings.get(home_team, 1500.0)
-        away_elo = ratings.get(away_team, 1500.0)
+        home_elo = ratings.get(home_team, DEFAULT_ELO)
+        away_elo = ratings.get(away_team, DEFAULT_ELO)
         upcoming_probabilities.append(
             {
                 "home_team": home_team,
@@ -241,8 +294,8 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
         home_team = match.get("home_team")
         away_team = match.get("away_team")
         pregame = pregame_ratings.get(match_id, {})
-        pregame_home_elo = pregame.get("pregame_home_elo", starting_ratings.get(home_team, 1500.0))
-        pregame_away_elo = pregame.get("pregame_away_elo", starting_ratings.get(away_team, 1500.0))
+        pregame_home_elo = pregame.get("pregame_home_elo", starting_ratings.get(home_team, DEFAULT_ELO))
+        pregame_away_elo = pregame.get("pregame_away_elo", starting_ratings.get(away_team, DEFAULT_ELO))
         postgame_home_elo = pregame.get("postgame_home_elo", pregame_home_elo)
         completed_table.append(
             {
@@ -258,7 +311,7 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
             }
         )
 
-    elo_change_values = {team: rating - starting_ratings.get(team, 1500.0) for team, rating in ratings.items()}
+    elo_change_values = {team: rating - starting_ratings.get(team, DEFAULT_ELO) for team, rating in ratings.items()}
     elo_change_rank = {
         team: rank
         for rank, (team, _) in enumerate(
@@ -299,17 +352,13 @@ st.set_page_config(page_title="Football League Forecasting Tool", page_icon="⚽
 
 st.title("Football League Forecast Lab")
 
-competition_options = {
-    "Eredivisie": "DED",
-    "Premier League": "PL",
-}
 competition_label = st.selectbox(
     "Competition",
-    options=list(competition_options.keys()),
+    options=list(COMPETITION_OPTIONS.keys()),
     index=0,
 )
-competition = competition_options[competition_label]
-season = st.selectbox("Season", options=[2025], index=0)
+competition = COMPETITION_OPTIONS[competition_label]
+season = st.selectbox("Season", options=SEASON_OPTIONS, index=0)
 refresh_clicked = st.button("Refresh matches")
 
 if refresh_clicked:
@@ -345,27 +394,18 @@ with data_elo_tab:
     if probabilities_table:
         st.dataframe(probabilities_table, use_container_width=True)
     else:
-        st.info("No upcoming matches available for probability prediction.")
+        st.info(NO_UPCOMING_MSG)
 
     st.subheader("Completed matches")
     if completed_table:
         st.dataframe(completed_table, use_container_width=True)
     else:
-        st.info("No FINISHED matches available.")
+        st.info(NO_COMPLETED_MSG)
 
     st.subheader("Elo Ratings")
     if ratings_table:
-        ratings_display_df = pd.DataFrame(ratings_table)
-        ratings_display_df = ratings_display_df.drop(
-            columns=[
-                col
-                for col in ratings_display_df.columns
-                if col == "index" or str(col).startswith("Unnamed")
-            ],
-            errors="ignore",
-        )
-        ratings_display_df = ratings_display_df.reset_index(drop=True)
-        ratings_height = 35 * (len(ratings_display_df) + 1) + 20
+        ratings_display_df = clean_display_df(pd.DataFrame(ratings_table))
+        ratings_height = full_table_height(ratings_display_df)
         st.dataframe(
             ratings_display_df,
             hide_index=True,
@@ -373,21 +413,12 @@ with data_elo_tab:
             use_container_width=True,
         )
     else:
-        st.info("No FINISHED matches available to compute Elo ratings.")
+        st.info(NO_RATINGS_MSG)
 
     st.subheader("League standings")
     if standings_table:
-        standings_display_df = pd.DataFrame(standings_table)
-        standings_display_df = standings_display_df.drop(
-            columns=[
-                col
-                for col in standings_display_df.columns
-                if col == "index" or str(col).startswith("Unnamed")
-            ],
-            errors="ignore",
-        )
-        standings_display_df = standings_display_df.reset_index(drop=True)
-        standings_height = 35 * (len(standings_display_df) + 1) + 20
+        standings_display_df = clean_display_df(pd.DataFrame(standings_table))
+        standings_height = full_table_height(standings_display_df)
         st.dataframe(
             standings_display_df,
             hide_index=True,
@@ -395,16 +426,16 @@ with data_elo_tab:
             use_container_width=True,
         )
     else:
-        st.info("No completed matches available to compute standings.")
+        st.info(NO_STANDINGS_MSG)
 
 with simulations_tab:
     st.header("Monte Carlo Simulation")
     num_simulations = st.number_input(
         "Number of simulations",
-        min_value=100,
-        max_value=20000,
-        value=10000,
-        step=100,
+        min_value=MONTE_CARLO_MIN,
+        max_value=MONTE_CARLO_MAX,
+        value=MONTE_CARLO_DEFAULT,
+        step=MONTE_CARLO_STEP,
     )
     seed_text = st.text_input("Random seed (optional)", value="")
     run_simulation = st.button("Run simulation")
@@ -444,7 +475,7 @@ with simulations_tab:
 
         teams_sorted_for_output = sorted(
             teams,
-            key=lambda team: (-starting_ratings.get(team, 1500.0), team),
+            key=lambda team: (-starting_ratings.get(team, DEFAULT_ELO), team),
         )
         position_labels = [str(i) for i in range(1, len(teams) + 1)]
 
@@ -511,20 +542,10 @@ with simulations_tab:
         st.altair_chart(heatmap, use_container_width=True)
 
         simulation_display_df = simulation_df.copy()
-        probability_columns = [
-            col for col in simulation_display_df.columns if col != "team"
-        ]
+        probability_columns = [col for col in simulation_display_df.columns if col != "team"]
         simulation_display_df[probability_columns] = simulation_display_df[probability_columns].round(1)
-        simulation_display_df = simulation_display_df.drop(
-            columns=[
-                col
-                for col in simulation_display_df.columns
-                if col == "index" or str(col).startswith("Unnamed")
-            ],
-            errors="ignore",
-        )
-        simulation_display_df = simulation_display_df.reset_index(drop=True)
-        simulation_height = 35 * (len(simulation_display_df) + 1) + 20
+        simulation_display_df = clean_display_df(simulation_display_df)
+        simulation_height = full_table_height(simulation_display_df)
         simulation_column_config = {
             col: st.column_config.NumberColumn(format="%.1f")
             for col in probability_columns
@@ -541,15 +562,15 @@ with simulations_tab:
 with team_deep_dive_tab:
     teams_for_select = sorted(
         list(ratings.keys()),
-        key=lambda team: (-starting_ratings.get(team, 1500.0), team),
+        key=lambda team: (-starting_ratings.get(team, DEFAULT_ELO), team),
     )
     if not teams_for_select:
         st.info("No teams available for deep dive.")
     else:
         selected_team = st.selectbox("Team", options=teams_for_select, index=0)
 
-        current_elo = ratings.get(selected_team, 1500.0)
-        starting_elo = starting_ratings.get(selected_team, 1500.0)
+        current_elo = ratings.get(selected_team, DEFAULT_ELO)
+        starting_elo = starting_ratings.get(selected_team, DEFAULT_ELO)
         elo_change = current_elo - starting_elo
         standings_lookup = {row["team"]: row for row in standings_table}
         team_standing = standings_lookup.get(selected_team, {})
@@ -643,9 +664,9 @@ with team_deep_dive_tab:
             pregame_opponent_elo = prepost.get("pregame_away_elo") if is_home else prepost.get("pregame_home_elo")
             postgame_team_elo = prepost.get("postgame_home_elo") if is_home else prepost.get("postgame_away_elo")
             if pregame_team_elo is None:
-                pregame_team_elo = starting_ratings.get(selected_team, 1500.0)
+                pregame_team_elo = starting_ratings.get(selected_team, DEFAULT_ELO)
             if pregame_opponent_elo is None:
-                pregame_opponent_elo = starting_ratings.get(opponent, 1500.0)
+                pregame_opponent_elo = starting_ratings.get(opponent, DEFAULT_ELO)
             if postgame_team_elo is None:
                 postgame_team_elo = pregame_team_elo
             team_completed_rows.append(
@@ -683,8 +704,8 @@ with team_deep_dive_tab:
             is_home = home_team == selected_team
             opponent = away_team if is_home else home_team
             home_away = "Home" if is_home else "Away"
-            team_elo = ratings.get(selected_team, 1500.0)
-            opponent_elo = ratings.get(opponent, 1500.0)
+            team_elo = ratings.get(selected_team, DEFAULT_ELO)
+            opponent_elo = ratings.get(opponent, DEFAULT_ELO)
             p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
             p_win = p_home if is_home else p_away
             p_loss = p_away if is_home else p_home
@@ -706,9 +727,8 @@ with team_deep_dive_tab:
         if remaining_rows:
             remaining_df = pd.DataFrame(remaining_rows)
             remaining_column_config = {
-                "p_win": st.column_config.NumberColumn(format="%.1f"),
-                "p_draw": st.column_config.NumberColumn(format="%.1f"),
-                "p_loss": st.column_config.NumberColumn(format="%.1f"),
+                col: st.column_config.NumberColumn(format="%.1f")
+                for col in PROBABILITY_COLUMNS
             }
             st.dataframe(
                 remaining_df,
@@ -720,10 +740,5 @@ with team_deep_dive_tab:
             st.info("No remaining fixtures for selected team.")
 
 st.divider()
-st.caption("Model v0.1.0")
-st.caption("Last updated 2026/02/14")
-st.caption("K = 20")
-st.caption("Home Advantage = 100")
-st.caption("Goal-Difference Multiplier = ON")
-st.caption("Dynamic Draw Model = ON")
-st.caption("Data source: football-data.org")
+for line in FOOTER_LINES:
+    st.caption(line)

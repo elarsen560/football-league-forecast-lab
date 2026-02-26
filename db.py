@@ -91,6 +91,7 @@ def get_matches(competition: str, season: int) -> list[dict[str, Any]]:
 
 
 def get_team_matches(competition: str, season: int, team_name: str) -> list[dict[str, Any]]:
+    """Return matches for a single team (home or away) within competition and season."""
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(

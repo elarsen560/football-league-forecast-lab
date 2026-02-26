@@ -62,16 +62,12 @@ def compute_elo_ratings(
 
 def predict_match(home_team: str, away_team: str, ratings: dict[str, float]) -> tuple[float, float, float]:
     """
-    Given Elo ratings for home and away, return (p_home, p_draw, p_away).
-    Use:
-      - Home advantage = +50 Elo to home rating
-      - Fixed draw_probability = 0.25
-    Compute expected home win probability E_home using standard Elo formula:
-      E_home = 1 / (1 + 10 ** ((R_away - R_home_with_adv) / 400))
-    Then:
-      p_home = (1 - p_draw) * E_home
-      p_away = (1 - p_draw) * (1 - E_home)
-    Return the triple.
+    Return (p_home, p_draw, p_away) using current Elo ratings.
+    Method:
+      - Apply home advantage (+100) to home Elo before expected-score calculation.
+      - Compute base expected probabilities E_home and E_away with Elo formula.
+      - Compute dynamic draw probability from E_home * E_away.
+      - Split draw mass equally from home/away expectations.
     """
     starting_rating = 1500.0
     home_advantage = 100.0
