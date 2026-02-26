@@ -660,6 +660,8 @@ with team_deep_dive_tab:
             st.info("No completed matches available for Elo evolution.")
 
         team_completed_rows = []
+        completed_points_total = 0
+        completed_matches_count = 0
         for match in sorted(team_completed_matches, key=lambda m: m.get("utc_date") or "", reverse=True):
             match_id = match.get("match_id")
             home_team = match.get("home_team")
@@ -679,6 +681,18 @@ with team_deep_dive_tab:
                 pregame_opponent_elo = starting_ratings.get(opponent, DEFAULT_ELO)
             if postgame_team_elo is None:
                 postgame_team_elo = pregame_team_elo
+            if home_score is not None and away_score is not None:
+                completed_matches_count += 1
+                if is_home:
+                    if home_score > away_score:
+                        completed_points_total += 3
+                    elif home_score == away_score:
+                        completed_points_total += 1
+                else:
+                    if away_score > home_score:
+                        completed_points_total += 3
+                    elif away_score == home_score:
+                        completed_points_total += 1
             team_completed_rows.append(
                 {
                     "matchday": match.get("matchday"),
@@ -692,7 +706,10 @@ with team_deep_dive_tab:
                 }
             )
 
-        st.subheader("Completed matches")
+        completed_ppm_text = "N/A"
+        if completed_matches_count > 0:
+            completed_ppm_text = f"{(completed_points_total / completed_matches_count):.1f}"
+        st.subheader(f"Completed Matches (PPM: {completed_ppm_text})")
         if team_completed_rows:
             st.dataframe(team_completed_rows, use_container_width=True)
         else:
@@ -708,6 +725,8 @@ with team_deep_dive_tab:
             key=lambda m: (m.get("matchday") if m.get("matchday") is not None else 9999, m.get("utc_date") or ""),
         )
         remaining_rows = []
+        expected_points_total = 0.0
+        remaining_fixtures_count = 0
         for match in team_upcoming_matches:
             home_team = match.get("home_team")
             away_team = match.get("away_team")
@@ -719,6 +738,8 @@ with team_deep_dive_tab:
             p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
             p_win = p_home if is_home else p_away
             p_loss = p_away if is_home else p_home
+            expected_points_total += (3.0 * p_win) + (1.0 * p_draw)
+            remaining_fixtures_count += 1
             remaining_rows.append(
                 {
                     "matchday": match.get("matchday"),
@@ -733,7 +754,10 @@ with team_deep_dive_tab:
                 }
             )
 
-        st.subheader("Remaining fixtures")
+        expected_ppm_text = "N/A"
+        if remaining_fixtures_count > 0:
+            expected_ppm_text = f"{(expected_points_total / remaining_fixtures_count):.1f}"
+        st.subheader(f"Remaining Fixtures (Expected PPM: {expected_ppm_text})")
         if remaining_rows:
             remaining_df = pd.DataFrame(remaining_rows)
             remaining_column_config = {
