@@ -1,4 +1,5 @@
 import csv
+import math
 import random
 from datetime import datetime, timezone
 
@@ -36,6 +37,12 @@ MONTE_CARLO_MIN = 100
 MONTE_CARLO_MAX = 20000
 MONTE_CARLO_DEFAULT = 10000
 MONTE_CARLO_STEP = 100
+CALIBRATION_BIN_START = 0.0
+CALIBRATION_BIN_END = 0.35
+CALIBRATION_BIN_WIDTH = 0.05
+CALIBRATION_FULL_BIN_START = 0.0
+CALIBRATION_FULL_BIN_END = 1.0
+CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
     "Model v0.1.2",
@@ -69,6 +76,61 @@ def clean_display_df(df: pd.DataFrame) -> pd.DataFrame:
 def full_table_height(df: pd.DataFrame) -> int:
     """Return a consistent full-table height so all rows render without vertical scrolling."""
     return TABLE_ROW_HEIGHT * (len(df) + 1) + TABLE_EXTRA_HEIGHT
+
+
+def build_calibration_df(
+    matches_df: pd.DataFrame,
+    pred_col: str,
+    actual_col: str,
+    bin_edges: list[float],
+) -> pd.DataFrame:
+    """Build binned calibration data with bin-center x and empirical outcome rate y."""
+    rows = []
+    for i in range(len(bin_edges) - 1):
+        bin_start = bin_edges[i]
+        bin_end = bin_edges[i + 1]
+        is_last = i == (len(bin_edges) - 2)
+        if is_last:
+            mask = (matches_df[pred_col] >= bin_start) & (matches_df[pred_col] <= bin_end)
+            bin_label = f"[{bin_start:.2f}, {bin_end:.2f}]"
+        else:
+            mask = (matches_df[pred_col] >= bin_start) & (matches_df[pred_col] < bin_end)
+            bin_label = f"[{bin_start:.2f}, {bin_end:.2f})"
+        subset = matches_df.loc[mask]
+        if subset.empty:
+            continue
+        n = int(len(subset))
+        k = int(subset[actual_col].sum())
+        actual_rate = float(k / n)
+        ci_low, ci_high = wilson_ci(k, n, z=1.96)
+        rows.append(
+            {
+                "bin_start": bin_start,
+                "bin_end": bin_end,
+                "bin_center": (bin_start + bin_end) / 2.0,
+                "actual_rate": actual_rate,
+                "k": k,
+                "n": n,
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "bin_label": bin_label,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Compute Wilson score 95% confidence interval for a binomial proportion."""
+    if n <= 0:
+        return 0.0, 1.0
+    p_hat = k / n
+    z2 = z * z
+    denom = 1.0 + (z2 / n)
+    center = (p_hat + (z2 / (2.0 * n))) / denom
+    half_width = (z * ((p_hat * (1.0 - p_hat) + (z2 / (4.0 * n))) / n) ** 0.5) / denom
+    ci_low = max(0.0, center - half_width)
+    ci_high = min(1.0, center + half_width)
+    return ci_low, ci_high
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -397,7 +459,9 @@ completed_matches = season_context["completed_matches"]
 upcoming_matches = season_context["upcoming_matches"]
 pregame_ratings = season_context["pregame_ratings"]
 
-data_elo_tab, simulations_tab, team_deep_dive_tab = st.tabs(["Data & Elo", "Simulations", "Team Deep Dive"])
+data_elo_tab, simulations_tab, team_deep_dive_tab, diagnostics_tab = st.tabs(
+    ["Data & Elo", "Simulations", "Team Deep Dive", "Diagnostics"]
+)
 
 with data_elo_tab:
     st.subheader("Upcoming Match Probabilities")
@@ -772,6 +836,516 @@ with team_deep_dive_tab:
             )
         else:
             st.info("No remaining fixtures for selected team.")
+
+with diagnostics_tab:
+    aggregate_all_leagues = st.checkbox("Aggregate across all leagues", value=False)
+    diagnostics_sources = []
+    if aggregate_all_leagues:
+        for comp_code in sorted(set(COMPETITION_OPTIONS.values())):
+            comp_matches = get_matches(comp_code, int(season))
+            comp_starting_ratings, _ = load_starting_ratings_csv(competition=comp_code)
+            comp_context = compute_season_context(comp_matches, comp_starting_ratings)
+            diagnostics_sources.append(
+                (
+                    comp_context["finished_matches"],
+                    comp_context["pregame_ratings"],
+                    comp_starting_ratings,
+                )
+            )
+    else:
+        diagnostics_sources.append((finished_matches, pregame_ratings, starting_ratings))
+
+    completed_pred_rows = []
+    for source_finished_matches, source_pregame_ratings, source_starting_ratings in diagnostics_sources:
+        for match in source_finished_matches:
+            home_team = match.get("home_team")
+            away_team = match.get("away_team")
+            home_score = match.get("home_score")
+            away_score = match.get("away_score")
+            match_id = match.get("match_id")
+            if not home_team or not away_team:
+                continue
+            if home_score is None or away_score is None:
+                continue
+
+            prepost = source_pregame_ratings.get(match_id, {})
+            pregame_home_elo = prepost.get("pregame_home_elo", source_starting_ratings.get(home_team, DEFAULT_ELO))
+            pregame_away_elo = prepost.get("pregame_away_elo", source_starting_ratings.get(away_team, DEFAULT_ELO))
+            p_home_win, p_draw, p_home_loss = predict_match(
+                home_team,
+                away_team,
+                {
+                    home_team: pregame_home_elo,
+                    away_team: pregame_away_elo,
+                },
+            )
+
+            completed_pred_rows.append(
+                {
+                    "matchday": match.get("matchday"),
+                    "p_home_win": p_home_win,
+                    "p_draw": p_draw,
+                    "p_home_loss": p_home_loss,
+                    "actual_home_win": 1 if home_score > away_score else 0,
+                    "actual_draw": 1 if home_score == away_score else 0,
+                    "actual_home_loss": 1 if home_score < away_score else 0,
+                }
+            )
+
+    epsilon = 1e-15
+
+    def clamp_and_renormalize_probs(p_home: float, p_draw: float, p_away: float) -> tuple[float, float, float]:
+        vals = [
+            max(epsilon, min(1.0 - epsilon, p_home)),
+            max(epsilon, min(1.0 - epsilon, p_draw)),
+            max(epsilon, min(1.0 - epsilon, p_away)),
+        ]
+        denom = sum(vals)
+        return vals[0] / denom, vals[1] / denom, vals[2] / denom
+
+    filtered_rows = []
+    for row in completed_pred_rows:
+        p_home = row.get("p_home_win")
+        p_draw = row.get("p_draw")
+        p_away = row.get("p_home_loss")
+        y_home = row.get("actual_home_win")
+        y_draw = row.get("actual_draw")
+        y_away = row.get("actual_home_loss")
+        probs = [p_home, p_draw, p_away]
+        if any(v is None for v in probs):
+            continue
+        if any((not isinstance(v, (int, float))) for v in probs):
+            continue
+        if any((v < 0.0 or v > 1.0) for v in probs):
+            continue
+        filtered_rows.append(
+            {
+                "matchday": row.get("matchday"),
+                "p_home": float(p_home),
+                "p_draw": float(p_draw),
+                "p_away": float(p_away),
+                "y_home": int(y_home),
+                "y_draw": int(y_draw),
+                "y_away": int(y_away),
+            }
+        )
+
+    matches_evaluated = len(filtered_rows)
+    log_loss_value = None
+    brier_value = None
+    uniform_log_loss = None
+    uniform_brier = None
+    prevalence_log_loss = None
+    prevalence_brier = None
+    observed_home_rate = None
+    observed_draw_rate = None
+    observed_away_rate = None
+
+    if matches_evaluated > 0:
+        # Model metrics
+        model_ll_sum = 0.0
+        model_bs_sum = 0.0
+        for row in filtered_rows:
+            p_home = row["p_home"]
+            p_draw = row["p_draw"]
+            p_away = row["p_away"]
+            y_home = row["y_home"]
+            y_draw = row["y_draw"]
+            y_away = row["y_away"]
+            p_true = p_home if y_home == 1 else (p_draw if y_draw == 1 else p_away)
+            p_true = max(epsilon, min(1.0 - epsilon, p_true))
+            model_ll_sum += -math.log(p_true)
+            model_bs_sum += ((p_home - y_home) ** 2) + ((p_draw - y_draw) ** 2) + ((p_away - y_away) ** 2)
+        log_loss_value = model_ll_sum / matches_evaluated
+        brier_value = model_bs_sum / matches_evaluated
+
+        # Uniform baseline metrics
+        u_home, u_draw, u_away = clamp_and_renormalize_probs(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
+        uniform_ll_sum = 0.0
+        uniform_bs_sum = 0.0
+        for row in filtered_rows:
+            y_home = row["y_home"]
+            y_draw = row["y_draw"]
+            y_away = row["y_away"]
+            u_true = u_home if y_home == 1 else (u_draw if y_draw == 1 else u_away)
+            uniform_ll_sum += -math.log(u_true)
+            uniform_bs_sum += ((u_home - y_home) ** 2) + ((u_draw - y_draw) ** 2) + ((u_away - y_away) ** 2)
+        uniform_log_loss = uniform_ll_sum / matches_evaluated
+        uniform_brier = uniform_bs_sum / matches_evaluated
+
+        # Prevalence baseline metrics
+        k_home = sum(row["y_home"] for row in filtered_rows)
+        k_draw = sum(row["y_draw"] for row in filtered_rows)
+        k_away = sum(row["y_away"] for row in filtered_rows)
+        q_home = k_home / matches_evaluated
+        q_draw = k_draw / matches_evaluated
+        q_away = k_away / matches_evaluated
+        q_home, q_draw, q_away = clamp_and_renormalize_probs(q_home, q_draw, q_away)
+        observed_home_rate = q_home
+        observed_draw_rate = q_draw
+        observed_away_rate = q_away
+
+        prevalence_ll_sum = 0.0
+        prevalence_bs_sum = 0.0
+        for row in filtered_rows:
+            y_home = row["y_home"]
+            y_draw = row["y_draw"]
+            y_away = row["y_away"]
+            q_true = q_home if y_home == 1 else (q_draw if y_draw == 1 else q_away)
+            prevalence_ll_sum += -math.log(q_true)
+            prevalence_bs_sum += ((q_home - y_home) ** 2) + ((q_draw - y_draw) ** 2) + ((q_away - y_away) ** 2)
+        prevalence_log_loss = prevalence_ll_sum / matches_evaluated
+        prevalence_brier = prevalence_bs_sum / matches_evaluated
+
+    log_loss_text = "N/A" if log_loss_value is None else f"{log_loss_value:.3f}"
+    brier_text = "N/A" if brier_value is None else f"{brier_value:.3f}"
+    uniform_log_loss_text = "N/A" if uniform_log_loss is None else f"{uniform_log_loss:.3f}"
+    uniform_brier_text = "N/A" if uniform_brier is None else f"{uniform_brier:.3f}"
+    prevalence_log_loss_text = "N/A" if prevalence_log_loss is None else f"{prevalence_log_loss:.3f}"
+    prevalence_brier_text = "N/A" if prevalence_brier is None else f"{prevalence_brier:.3f}"
+    st.write(f"Matches evaluated: {matches_evaluated}")
+    st.write(
+        f"Log Loss: {log_loss_text} (Uniform: {uniform_log_loss_text} | Prevalence: {prevalence_log_loss_text})"
+    )
+    st.write(
+        f"Brier Score: {brier_text} (Uniform: {uniform_brier_text} | Prevalence: {prevalence_brier_text})"
+    )
+    if observed_home_rate is not None and observed_draw_rate is not None and observed_away_rate is not None:
+        st.caption(
+            f"Observed rates: Home W {observed_home_rate:.3f}, Draw {observed_draw_rate:.3f}, Home L {observed_away_rate:.3f}"
+        )
+
+    if not completed_pred_rows:
+        st.info("No completed matches available for diagnostics.")
+    else:
+        completed_pred_df = pd.DataFrame(completed_pred_rows)
+        calibration_specs = [
+            (
+                "Home Win Calibration",
+                "p_home_win",
+                "actual_home_win",
+                CALIBRATION_FULL_BIN_START,
+                CALIBRATION_FULL_BIN_END,
+                CALIBRATION_FULL_BIN_WIDTH,
+            ),
+            (
+                "Draw Calibration",
+                "p_draw",
+                "actual_draw",
+                CALIBRATION_BIN_START,
+                CALIBRATION_BIN_END,
+                CALIBRATION_BIN_WIDTH,
+            ),
+            (
+                "Home Loss Calibration",
+                "p_home_loss",
+                "actual_home_loss",
+                CALIBRATION_FULL_BIN_START,
+                CALIBRATION_FULL_BIN_END,
+                CALIBRATION_FULL_BIN_WIDTH,
+            ),
+        ]
+        c1, c2, c3 = st.columns(3)
+        for col, (title, pred_col, actual_col, bin_start, bin_end, bin_width) in zip((c1, c2, c3), calibration_specs):
+            bin_count = int(round((bin_end - bin_start) / bin_width))
+            bin_edges = [
+                round(bin_start + (i * bin_width), 10)
+                for i in range(bin_count + 1)
+            ]
+            calibration_df = build_calibration_df(completed_pred_df, pred_col, actual_col, bin_edges)
+            with col:
+                st.subheader(title)
+                if calibration_df.empty:
+                    st.info("No calibration data in configured bins.")
+                    continue
+
+                reference_df = pd.DataFrame(
+                    {
+                        "x": [bin_start, bin_end],
+                        "y": [bin_start, bin_end],
+                    }
+                )
+                ref_line = (
+                    alt.Chart(reference_df)
+                    .mark_line(color="#888888", strokeDash=[4, 4])
+                    .encode(
+                        x=alt.X("x:Q", scale=alt.Scale(domain=[bin_start, bin_end])),
+                        y=alt.Y("y:Q", title="Actual frequency", scale=alt.Scale(domain=[0.0, 1.0])),
+                    )
+                )
+                cal_error = (
+                    alt.Chart(calibration_df)
+                    .mark_errorbar(color="#6b6b6b")
+                    .encode(
+                        x=alt.X("bin_center:Q"),
+                        y=alt.Y(
+                            "ci_low:Q",
+                            title="Actual frequency",
+                            scale=alt.Scale(domain=[0.0, 1.0]),
+                        ),
+                        y2=alt.Y2("ci_high:Q"),
+                        tooltip=[
+                            alt.Tooltip("bin_label:N", title="Bin"),
+                            alt.Tooltip("bin_center:Q", title="Predicted", format=".2f"),
+                            alt.Tooltip("actual_rate:Q", title="Actual", format=".2f"),
+                            alt.Tooltip("ci_low:Q", title="95% CI Low", format=".2f"),
+                            alt.Tooltip("ci_high:Q", title="95% CI High", format=".2f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                cal_line = (
+                    alt.Chart(calibration_df)
+                    .mark_line()
+                    .encode(
+                        x=alt.X(
+                            "bin_center:Q",
+                            title="Predicted probability",
+                            scale=alt.Scale(domain=[bin_start, bin_end]),
+                        ),
+                        y=alt.Y(
+                            "actual_rate:Q",
+                            title="Actual frequency",
+                            scale=alt.Scale(domain=[0.0, 1.0]),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("bin_label:N", title="Bin"),
+                            alt.Tooltip("bin_center:Q", title="Predicted", format=".2f"),
+                            alt.Tooltip("actual_rate:Q", title="Actual", format=".2f"),
+                            alt.Tooltip("ci_low:Q", title="95% CI Low", format=".2f"),
+                            alt.Tooltip("ci_high:Q", title="95% CI High", format=".2f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                cal_points = (
+                    alt.Chart(calibration_df)
+                    .mark_circle(size=55)
+                    .encode(
+                        x=alt.X("bin_center:Q", scale=alt.Scale(domain=[bin_start, bin_end])),
+                        y=alt.Y(
+                            "actual_rate:Q",
+                            title="Actual frequency",
+                            scale=alt.Scale(domain=[0.0, 1.0]),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("bin_label:N", title="Bin"),
+                            alt.Tooltip("bin_center:Q", title="Predicted", format=".2f"),
+                            alt.Tooltip("actual_rate:Q", title="Actual", format=".2f"),
+                            alt.Tooltip("ci_low:Q", title="95% CI Low", format=".2f"),
+                            alt.Tooltip("ci_high:Q", title="95% CI High", format=".2f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                chart = (ref_line + cal_error + cal_line + cal_points).resolve_scale(x="shared", y="shared")
+                st.altair_chart(chart.properties(height=280), use_container_width=True)
+
+        # Matchday performance charts (exclude rows without matchday only for these charts).
+        matchday_metric_buckets: dict[int, dict[str, float]] = {}
+        for row in filtered_rows:
+            matchday = row.get("matchday")
+            if matchday is None:
+                continue
+            if not isinstance(matchday, (int, float)):
+                continue
+            matchday_int = int(matchday)
+            p_home = row["p_home"]
+            p_draw = row["p_draw"]
+            p_away = row["p_away"]
+            y_home = row["y_home"]
+            y_draw = row["y_draw"]
+            y_away = row["y_away"]
+            p_true = p_home if y_home == 1 else (p_draw if y_draw == 1 else p_away)
+            p_true = max(epsilon, min(1.0 - epsilon, p_true))
+            ll_i = -math.log(p_true)
+            bs_i = ((p_home - y_home) ** 2) + ((p_draw - y_draw) ** 2) + ((p_away - y_away) ** 2)
+            q_true = q_home if y_home == 1 else (q_draw if y_draw == 1 else q_away)
+            ll_prev_i = -math.log(q_true)
+            bs_prev_i = ((q_home - y_home) ** 2) + ((q_draw - y_draw) ** 2) + ((q_away - y_away) ** 2)
+
+            if matchday_int not in matchday_metric_buckets:
+                matchday_metric_buckets[matchday_int] = {
+                    "model_ll_sum": 0.0,
+                    "model_bs_sum": 0.0,
+                    "prev_ll_sum": 0.0,
+                    "prev_bs_sum": 0.0,
+                    "n": 0,
+                }
+            matchday_metric_buckets[matchday_int]["model_ll_sum"] += ll_i
+            matchday_metric_buckets[matchday_int]["model_bs_sum"] += bs_i
+            matchday_metric_buckets[matchday_int]["prev_ll_sum"] += ll_prev_i
+            matchday_metric_buckets[matchday_int]["prev_bs_sum"] += bs_prev_i
+            matchday_metric_buckets[matchday_int]["n"] += 1
+
+        if (
+            matchday_metric_buckets
+            and uniform_log_loss is not None
+            and prevalence_log_loss is not None
+            and q_home is not None
+            and q_draw is not None
+            and q_away is not None
+        ):
+            matchday_rows = []
+            for md in sorted(matchday_metric_buckets.keys()):
+                n_md = int(matchday_metric_buckets[md]["n"])
+                ll_avg = matchday_metric_buckets[md]["model_ll_sum"] / n_md
+                bs_avg = matchday_metric_buckets[md]["model_bs_sum"] / n_md
+                prev_ll_avg = matchday_metric_buckets[md]["prev_ll_sum"] / n_md
+                prev_bs_avg = matchday_metric_buckets[md]["prev_bs_sum"] / n_md
+                matchday_rows.append(
+                    {
+                        "matchday": md,
+                        "n": n_md,
+                        "model_log_loss": ll_avg,
+                        "model_brier": bs_avg,
+                        "prevalence_log_loss": prev_ll_avg,
+                        "prevalence_brier": prev_bs_avg,
+                        "uniform_log_loss": uniform_log_loss,
+                        "uniform_brier": uniform_brier,
+                    }
+                )
+
+            matchday_df = pd.DataFrame(matchday_rows)
+            log_loss_long_rows = []
+            brier_long_rows = []
+            for row in matchday_rows:
+                md = row["matchday"]
+                n_md = row["n"]
+                log_loss_long_rows.extend(
+                    [
+                        {"matchday": md, "metric_value": row["model_log_loss"], "series_name": "Model", "n": n_md},
+                        {"matchday": md, "metric_value": row["prevalence_log_loss"], "series_name": "Prevalence", "n": n_md},
+                        {"matchday": md, "metric_value": row["uniform_log_loss"], "series_name": "Uniform", "n": n_md},
+                    ]
+                )
+                brier_long_rows.extend(
+                    [
+                        {"matchday": md, "metric_value": row["model_brier"], "series_name": "Model", "n": n_md},
+                        {"matchday": md, "metric_value": row["prevalence_brier"], "series_name": "Prevalence", "n": n_md},
+                        {"matchday": md, "metric_value": row["uniform_brier"], "series_name": "Uniform", "n": n_md},
+                    ]
+                )
+            log_loss_long_df = pd.DataFrame(log_loss_long_rows)
+            brier_long_df = pd.DataFrame(brier_long_rows)
+
+            st.subheader("Matchday Performance")
+            eligible_matchdays_ll = [
+                row for row in matchday_rows
+                if row.get("n", 0) >= 5
+            ]
+            denom_ll = len(eligible_matchdays_ll)
+            if denom_ll > 0:
+                num_ll_uniform = sum(
+                    1 for row in eligible_matchdays_ll
+                    if row["model_log_loss"] < row["uniform_log_loss"]
+                )
+                num_ll_prev = sum(
+                    1 for row in eligible_matchdays_ll
+                    if row["model_log_loss"] < row["prevalence_log_loss"]
+                )
+                pct_ll_uniform = round((100.0 * num_ll_uniform) / denom_ll)
+                pct_ll_prev = round((100.0 * num_ll_prev) / denom_ll)
+                ll_uniform_text = f"Log Loss: Model beats Uniform: {num_ll_uniform}/{denom_ll} ({pct_ll_uniform}%)"
+                ll_prev_text = f"Log Loss: Model beats Prevalence: {num_ll_prev}/{denom_ll} ({pct_ll_prev}%)"
+            else:
+                ll_uniform_text = "Log Loss: Model beats Uniform: N/A"
+                ll_prev_text = "Log Loss: Model beats Prevalence: N/A"
+
+            eligible_matchdays_bs = [
+                row for row in matchday_rows
+                if row.get("n", 0) >= 5
+            ]
+            denom_bs = len(eligible_matchdays_bs)
+            if denom_bs > 0:
+                num_bs_uniform = sum(
+                    1 for row in eligible_matchdays_bs
+                    if row["model_brier"] < row["uniform_brier"]
+                )
+                num_bs_prev = sum(
+                    1 for row in eligible_matchdays_bs
+                    if row["model_brier"] < row["prevalence_brier"]
+                )
+                pct_bs_uniform = round((100.0 * num_bs_uniform) / denom_bs)
+                pct_bs_prev = round((100.0 * num_bs_prev) / denom_bs)
+                bs_uniform_text = f"Brier: Model beats Uniform: {num_bs_uniform}/{denom_bs} ({pct_bs_uniform}%)"
+                bs_prev_text = f"Brier: Model beats Prevalence: {num_bs_prev}/{denom_bs} ({pct_bs_prev}%)"
+            else:
+                bs_uniform_text = "Brier: Model beats Uniform: N/A"
+                bs_prev_text = "Brier: Model beats Prevalence: N/A"
+
+            md_c1, md_c2 = st.columns(2)
+            with md_c1:
+                st.write(ll_uniform_text)
+                st.write(ll_prev_text)
+                st.subheader("Matchday Log Loss")
+                ll_line = (
+                    alt.Chart(log_loss_long_df)
+                    .mark_line()
+                    .encode(
+                        x=alt.X("matchday:Q", title="Matchday"),
+                        y=alt.Y("metric_value:Q", title="Log Loss"),
+                        color=alt.Color("series_name:N", title="Series"),
+                        tooltip=[
+                            alt.Tooltip("matchday:Q", title="Matchday"),
+                            alt.Tooltip("series_name:N", title="Series"),
+                            alt.Tooltip("metric_value:Q", title="Value", format=".3f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                ll_points = (
+                    alt.Chart(log_loss_long_df)
+                    .mark_circle(size=50)
+                    .encode(
+                        x=alt.X("matchday:Q"),
+                        y=alt.Y("metric_value:Q"),
+                        color=alt.Color("series_name:N", title="Series"),
+                        tooltip=[
+                            alt.Tooltip("matchday:Q", title="Matchday"),
+                            alt.Tooltip("series_name:N", title="Series"),
+                            alt.Tooltip("metric_value:Q", title="Value", format=".3f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                st.altair_chart((ll_line + ll_points).properties(height=280), use_container_width=True)
+
+            with md_c2:
+                st.write(bs_uniform_text)
+                st.write(bs_prev_text)
+                st.subheader("Matchday Brier Score")
+                bs_line = (
+                    alt.Chart(brier_long_df)
+                    .mark_line()
+                    .encode(
+                        x=alt.X("matchday:Q", title="Matchday"),
+                        y=alt.Y("metric_value:Q", title="Brier Score"),
+                        color=alt.Color("series_name:N", title="Series"),
+                        tooltip=[
+                            alt.Tooltip("matchday:Q", title="Matchday"),
+                            alt.Tooltip("series_name:N", title="Series"),
+                            alt.Tooltip("metric_value:Q", title="Value", format=".3f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                bs_points = (
+                    alt.Chart(brier_long_df)
+                    .mark_circle(size=50)
+                    .encode(
+                        x=alt.X("matchday:Q"),
+                        y=alt.Y("metric_value:Q"),
+                        color=alt.Color("series_name:N", title="Series"),
+                        tooltip=[
+                            alt.Tooltip("matchday:Q", title="Matchday"),
+                            alt.Tooltip("series_name:N", title="Series"),
+                            alt.Tooltip("metric_value:Q", title="Value", format=".3f"),
+                            alt.Tooltip("n:Q", title="n"),
+                        ],
+                    )
+                )
+                st.altair_chart((bs_line + bs_points).properties(height=280), use_container_width=True)
 
 st.divider()
 for line in FOOTER_LINES:
