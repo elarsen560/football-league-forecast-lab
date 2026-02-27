@@ -1,5 +1,6 @@
 import csv
 import math
+import os
 import random
 from datetime import datetime, timezone
 
@@ -14,10 +15,13 @@ from elo import compute_elo_ratings, predict_match
 init_db()
 
 DEFAULT_ELO = 1500.0
+DEFAULT_HOME_ADVANTAGE = 100.0
 FINISHED_STATUS = "FINISHED"
 UPCOMING_STATUSES = {"SCHEDULED", "TIMED"}
 MISSING_STARTING_ELO_MSG = "starting_elo.csv not found. Using default starting Elo ratings (1500)."
 INVALID_STARTING_ELO_MSG = "Failed to parse starting_elo.csv. Using default starting Elo ratings (1500)."
+MISSING_MODEL_CONFIG_MSG = "model_config.csv not found. Using default home advantage."
+INVALID_MODEL_CONFIG_MSG = "Invalid model_config.csv. Using default home advantage."
 NO_UPCOMING_MSG = "No upcoming matches available for probability prediction."
 NO_COMPLETED_MSG = "No FINISHED matches available."
 NO_RATINGS_MSG = "No FINISHED matches available to compute Elo ratings."
@@ -76,6 +80,50 @@ def clean_display_df(df: pd.DataFrame) -> pd.DataFrame:
 def full_table_height(df: pd.DataFrame) -> int:
     """Return a consistent full-table height so all rows render without vertical scrolling."""
     return TABLE_ROW_HEIGHT * (len(df) + 1) + TABLE_EXTRA_HEIGHT
+
+
+def _file_mtime(path: str) -> float | None:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def _load_home_advantage_config_cached(path: str, mtime: float | None) -> tuple[dict[str, float], str | None]:
+    del mtime
+    ha_map: dict[str, float] = {}
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as csvfile:
+            reader = csv.DictReader(csvfile)
+            if reader.fieldnames is None:
+                raise ValueError("model_config.csv is empty")
+            required_columns = {"competition", "home_advantage"}
+            if not required_columns.issubset(set(reader.fieldnames)):
+                raise ValueError("model_config.csv must include competition and home_advantage columns")
+            for row in reader:
+                competition = (row.get("competition") or "").strip()
+                home_advantage_raw = (row.get("home_advantage") or "").strip()
+                if competition == "" and home_advantage_raw == "":
+                    continue
+                if competition == "" or home_advantage_raw == "":
+                    raise ValueError("model_config.csv contains incomplete rows")
+                if competition in ha_map:
+                    raise ValueError("model_config.csv contains duplicate competition values")
+                ha_value = float(home_advantage_raw)
+                if ha_value < 0.0:
+                    raise ValueError("home_advantage must be non-negative")
+                ha_map[competition] = ha_value
+        return ha_map, None
+    except FileNotFoundError:
+        return {}, MISSING_MODEL_CONFIG_MSG
+    except Exception:
+        return {}, INVALID_MODEL_CONFIG_MSG
+
+
+def load_home_advantage_config(path: str = "model_config.csv") -> tuple[dict[str, float], str | None]:
+    """Load home-advantage settings by competition with mtime-sensitive cache invalidation."""
+    return _load_home_advantage_config_cached(path, _file_mtime(path))
 
 
 def build_calibration_df(
@@ -318,10 +366,19 @@ def run_monte_carlo_simulation(
     return position_counts
 
 
-def compute_season_context(stored_matches: list[dict], starting_ratings: dict[str, float]) -> dict:
+def compute_season_context(
+    stored_matches: list[dict],
+    starting_ratings: dict[str, float],
+    home_advantage: float = DEFAULT_HOME_ADVANTAGE,
+) -> dict:
     """Compute all season-scoped derived structures used by UI tabs."""
     finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
-    ratings, pregame_ratings = compute_elo_ratings(finished_matches, starting_ratings, include_pregame=True)
+    ratings, pregame_ratings = compute_elo_ratings(
+        finished_matches,
+        starting_ratings,
+        include_pregame=True,
+        home_advantage=home_advantage,
+    )
 
     probabilities_table = []
     upcoming_probabilities = []
@@ -332,7 +389,7 @@ def compute_season_context(stored_matches: list[dict], starting_ratings: dict[st
         matchday = match.get("matchday")
         if not home_team or not away_team:
             continue
-        p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
+        p_home, p_draw, p_away = predict_match(home_team, away_team, ratings, home_advantage=home_advantage)
         home_elo = ratings.get(home_team, DEFAULT_ELO)
         away_elo = ratings.get(away_team, DEFAULT_ELO)
         upcoming_probabilities.append(
@@ -447,7 +504,14 @@ starting_ratings, starting_ratings_info = load_starting_ratings_csv(competition=
 if starting_ratings_info:
     st.info(starting_ratings_info)
 
-season_context = compute_season_context(stored_matches, starting_ratings)
+ha_map, ha_warning = load_home_advantage_config()
+if ha_warning:
+    st.warning(ha_warning)
+home_advantage = ha_map.get(competition, DEFAULT_HOME_ADVANTAGE)
+ha_source = "from config" if competition in ha_map else "default"
+st.caption(f"Home advantage: {home_advantage:g} ({ha_source})")
+
+season_context = compute_season_context(stored_matches, starting_ratings, home_advantage=home_advantage)
 finished_matches = season_context["finished_matches"]
 probabilities_table = season_context["probabilities_table"]
 completed_table = season_context["completed_table"]
@@ -799,7 +863,7 @@ with team_deep_dive_tab:
             home_away = "Home" if is_home else "Away"
             team_elo = ratings.get(selected_team, DEFAULT_ELO)
             opponent_elo = ratings.get(opponent, DEFAULT_ELO)
-            p_home, p_draw, p_away = predict_match(home_team, away_team, ratings)
+            p_home, p_draw, p_away = predict_match(home_team, away_team, ratings, home_advantage=home_advantage)
             p_win = p_home if is_home else p_away
             p_loss = p_away if is_home else p_home
             expected_points_total += (3.0 * p_win) + (1.0 * p_draw)
@@ -844,19 +908,25 @@ with diagnostics_tab:
         for comp_code in sorted(set(COMPETITION_OPTIONS.values())):
             comp_matches = get_matches(comp_code, int(season))
             comp_starting_ratings, _ = load_starting_ratings_csv(competition=comp_code)
-            comp_context = compute_season_context(comp_matches, comp_starting_ratings)
+            comp_home_advantage = ha_map.get(comp_code, DEFAULT_HOME_ADVANTAGE)
+            comp_context = compute_season_context(
+                comp_matches,
+                comp_starting_ratings,
+                home_advantage=comp_home_advantage,
+            )
             diagnostics_sources.append(
                 (
                     comp_context["finished_matches"],
                     comp_context["pregame_ratings"],
                     comp_starting_ratings,
+                    comp_home_advantage,
                 )
             )
     else:
-        diagnostics_sources.append((finished_matches, pregame_ratings, starting_ratings))
+        diagnostics_sources.append((finished_matches, pregame_ratings, starting_ratings, home_advantage))
 
     completed_pred_rows = []
-    for source_finished_matches, source_pregame_ratings, source_starting_ratings in diagnostics_sources:
+    for source_finished_matches, source_pregame_ratings, source_starting_ratings, source_home_advantage in diagnostics_sources:
         for match in source_finished_matches:
             home_team = match.get("home_team")
             away_team = match.get("away_team")
@@ -878,6 +948,7 @@ with diagnostics_tab:
                     home_team: pregame_home_elo,
                     away_team: pregame_away_elo,
                 },
+                home_advantage=source_home_advantage,
             )
 
             completed_pred_rows.append(

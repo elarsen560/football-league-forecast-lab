@@ -5,11 +5,10 @@ def compute_elo_ratings(
     matches: list[dict],
     starting_ratings: dict[str, float] = None,
     include_pregame: bool = False,
+    home_advantage: float = 100.0,
 ) -> dict[str, float] | tuple[dict[str, float], dict[int, dict[str, float]]]:
     starting_rating = 1500.0
     k_factor = 20.0
-    home_advantage = 100.0
-
     ratings: dict[str, float] = {}
     pregame_ratings: dict[int, dict[str, float]] = {}
     starting_ratings = starting_ratings or {}
@@ -60,18 +59,21 @@ def compute_elo_ratings(
     return ratings
 
 
-def predict_match(home_team: str, away_team: str, ratings: dict[str, float]) -> tuple[float, float, float]:
+def predict_match(
+    home_team: str,
+    away_team: str,
+    ratings: dict[str, float],
+    home_advantage: float = 100.0,
+) -> tuple[float, float, float]:
     """
     Return (p_home, p_draw, p_away) using current Elo ratings.
     Method:
-      - Apply home advantage (+100) to home Elo before expected-score calculation.
+      - Apply configurable home advantage to home Elo before expected-score calculation.
       - Compute base expected probabilities E_home and E_away with Elo formula.
       - Compute dynamic draw probability from E_home * E_away.
       - Split draw mass equally from home/away expectations.
     """
     starting_rating = 1500.0
-    home_advantage = 100.0
-
     r_home = ratings.get(home_team, starting_rating)
     r_away = ratings.get(away_team, starting_rating)
     r_home_with_adv = r_home + home_advantage
