@@ -51,8 +51,8 @@ CALIBRATION_FULL_BIN_END = 1.0
 CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
-    "Model v0.2.0",
-    "Last updated 2026/02/27",
+    "Model v0.3.0",
+    "Last updated 2026/02/28",
     "K = 20",
     "Home Advantage = League Specific (default 75)",
     "Goal-Difference Multiplier = ON",
@@ -698,6 +698,185 @@ with simulations_tab:
             use_container_width=True,
             column_config=simulation_column_config,
         )
+
+        # Standings entropy derived from the existing Monte Carlo position distribution.
+        n_positions = len(position_labels)
+        prob_long_rows = []
+        entropy_rows = []
+        skipped_entropy_teams = []
+        for team in teams_sorted_for_output:
+            probs = [position_counts[team][idx] / float(num_simulations) for idx in range(n_positions)]
+            row_sum = sum(probs)
+            if row_sum <= 0:
+                skipped_entropy_teams.append(team)
+                continue
+            if abs(row_sum - 1.0) > 1e-9:
+                if 0.98 <= row_sum <= 1.02:
+                    probs = [p / row_sum for p in probs]
+                else:
+                    skipped_entropy_teams.append(team)
+                    continue
+            entropy = -sum(p * math.log(p) for p in probs if p > 0.0)
+            entropy_norm = entropy / math.log(n_positions) if n_positions > 1 else 0.0
+            entropy_rows.append(
+                {
+                    "team": team,
+                    "n_teams": n_positions,
+                    "entropy": entropy,
+                    "entropy_norm": entropy_norm,
+                }
+            )
+            for idx, p in enumerate(probs):
+                prob_long_rows.append(
+                    {
+                        "team": team,
+                        "position": idx + 1,
+                        "prob": p,
+                    }
+                )
+
+        st.session_state["simulation_position_prob_long"] = pd.DataFrame(prob_long_rows)
+        st.session_state["simulation_entropy_summary"] = pd.DataFrame(entropy_rows)
+
+        col_left, col_right = st.columns(2)
+        with col_left:
+            st.subheader("Team Entropy")
+            if skipped_entropy_teams:
+                st.warning(
+                    f"Skipped entropy for {len(skipped_entropy_teams)} team(s) due to invalid probability rows."
+                )
+            if not entropy_rows:
+                st.info("No valid simulation rows available for entropy summary.")
+            else:
+                entropy_df = pd.DataFrame(entropy_rows)
+                entropy_chart_df = entropy_df.sort_values(
+                    ["entropy_norm", "team"],
+                    ascending=[False, True],
+                )
+                entropy_chart_df["plausible_ranks"] = entropy_chart_df["entropy"].apply(
+                    lambda h: math.exp(h) if isinstance(h, (int, float)) and math.isfinite(float(h)) else None
+                )
+                entropy_chart = (
+                    alt.Chart(entropy_chart_df)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X(
+                            "entropy_norm:Q",
+                            title="Normalized entropy",
+                            scale=alt.Scale(domain=[0.0, 1.0]),
+                        ),
+                        y=alt.Y(
+                            "team:N",
+                            title="Team",
+                            sort=alt.SortField(field="entropy_norm", order="descending"),
+                            axis=alt.Axis(
+                                labelLimit=2000,
+                                labelOverlap=False,
+                                labelAngle=0,
+                                labelFontSize=11,
+                            ),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("team:N", title="Team"),
+                            alt.Tooltip("entropy_norm:Q", title="Normalized entropy", format=".3f"),
+                            alt.Tooltip("entropy:Q", title="Entropy (nats)", format=".3f"),
+                            alt.Tooltip("plausible_ranks:Q", title="Plausible finishing ranks", format=".1f"),
+                        ],
+                    )
+                    .properties(height=max(500, 34 * len(entropy_chart_df)))
+                )
+                st.altair_chart(entropy_chart, use_container_width=True)
+
+                mean_entropy_norm = entropy_df["entropy_norm"].mean()
+                median_entropy_norm = entropy_df["entropy_norm"].median()
+                st.write(f"Mean normalized entropy: {mean_entropy_norm:.3f}")
+                st.write(f"Median normalized entropy: {median_entropy_norm:.3f}")
+
+        with col_right:
+            st.subheader("Rank Entropy")
+            rank_entropy_rows = []
+            skipped_rank_columns = []
+            for rank_idx in range(n_positions):
+                rank = rank_idx + 1
+                rank_probs = [position_counts[team][rank_idx] / float(num_simulations) for team in teams_sorted_for_output]
+                col_sum = sum(rank_probs)
+                if col_sum <= 0.0:
+                    skipped_rank_columns.append(rank)
+                    continue
+                if abs(col_sum - 1.0) > 1e-9:
+                    if 0.98 <= col_sum <= 1.02:
+                        rank_probs = [p / col_sum for p in rank_probs]
+                    else:
+                        skipped_rank_columns.append(rank)
+                        continue
+                entropy = -sum(p * math.log(p) for p in rank_probs if p > 0.0)
+                entropy_norm = entropy / math.log(n_positions) if n_positions > 1 else 0.0
+                top_idx = max(range(len(rank_probs)), key=lambda i: rank_probs[i])
+                rank_entropy_rows.append(
+                    {
+                        "rank": rank,
+                        "entropy": entropy,
+                        "entropy_norm": entropy_norm,
+                        "top_team": teams_sorted_for_output[top_idx],
+                        "top_prob": rank_probs[top_idx],
+                    }
+                )
+
+            st.session_state["simulation_rank_entropy_summary"] = pd.DataFrame(rank_entropy_rows)
+
+            if skipped_rank_columns:
+                st.warning(
+                    f"Skipped entropy for {len(skipped_rank_columns)} rank(s) due to invalid probability columns."
+                )
+
+            if not rank_entropy_rows:
+                st.info("No valid rank columns available for entropy summary.")
+            else:
+                rank_entropy_df = pd.DataFrame(rank_entropy_rows).sort_values("rank")
+                rank_entropy_df["plausible_contenders"] = rank_entropy_df["entropy"].apply(
+                    lambda h: math.exp(h) if isinstance(h, (int, float)) and math.isfinite(float(h)) else None
+                )
+                rank_chart = (
+                    alt.Chart(rank_entropy_df)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X(
+                            "rank:Q",
+                            title="Rank",
+                            scale=alt.Scale(domain=[1, n_positions]),
+                            axis=alt.Axis(values=list(range(1, n_positions + 1))),
+                        ),
+                        y=alt.Y(
+                            "entropy_norm:Q",
+                            title="Normalized entropy",
+                            scale=alt.Scale(domain=[0.0, 1.0]),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("rank:Q", title="Rank"),
+                            alt.Tooltip("entropy_norm:Q", title="Normalized entropy", format=".3f"),
+                            alt.Tooltip("entropy:Q", title="Entropy (nats)", format=".3f"),
+                            alt.Tooltip("plausible_contenders:Q", title="Plausible contenders", format=".1f"),
+                            alt.Tooltip("top_team:N", title="Top occupant team"),
+                            alt.Tooltip("top_prob:Q", title="Top occupant prob", format=".3f"),
+                        ],
+                    )
+                    .properties(height=420)
+                )
+                st.altair_chart(rank_chart, use_container_width=True)
+
+                valid_ranks = set(rank_entropy_df["rank"].astype(int).tolist())
+                top5_ranks = [r for r in range(1, min(5, n_positions) + 1) if r in valid_ranks]
+                mid_ranks = [r for r in range(6, n_positions - 4) if r in valid_ranks]
+                bottom5_ranks = [r for r in range(max(1, n_positions - 4), n_positions + 1) if r in valid_ranks]
+
+                def zone_avg_text(ranks: list[int]) -> str:
+                    if not ranks:
+                        return "n/a"
+                    return f"{rank_entropy_df[rank_entropy_df['rank'].isin(ranks)]['entropy_norm'].mean():.3f}"
+
+                st.write(f"Avg normalized entropy (Top 5): {zone_avg_text(top5_ranks)}")
+                st.write(f"Avg normalized entropy (Midtable): {zone_avg_text(mid_ranks)}")
+                st.write(f"Avg normalized entropy (Bottom 5): {zone_avg_text(bottom5_ranks)}")
 
 with team_deep_dive_tab:
     teams_for_select = sorted(
