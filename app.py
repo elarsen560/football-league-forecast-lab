@@ -1038,6 +1038,19 @@ with diagnostics_tab:
             continue
         if any((v < 0.0 or v > 1.0) for v in probs):
             continue
+        expected_log_loss = None
+        expected_brier = None
+        prob_sum = float(p_home + p_draw + p_away)
+        if math.isfinite(prob_sum) and prob_sum > 0.0:
+            # Expected metrics are computed from a normalized probability vector to avoid
+            # numerical issues when model probabilities do not sum exactly to 1.0.
+            p_home_norm = float(p_home) / prob_sum
+            p_draw_norm = float(p_draw) / prob_sum
+            p_away_norm = float(p_away) / prob_sum
+            probs_norm = [p_home_norm, p_draw_norm, p_away_norm]
+            if all(math.isfinite(v) and 0.0 <= v <= 1.0 for v in probs_norm):
+                expected_log_loss = -sum(v * math.log(max(epsilon, v)) for v in probs_norm)
+                expected_brier = 1.0 - sum(v * v for v in probs_norm)
         filtered_rows.append(
             {
                 "matchday": row.get("matchday"),
@@ -1047,6 +1060,8 @@ with diagnostics_tab:
                 "y_home": int(y_home),
                 "y_draw": int(y_draw),
                 "y_away": int(y_away),
+                "expected_log_loss": expected_log_loss,
+                "expected_brier": expected_brier,
             }
         )
 
@@ -1060,6 +1075,8 @@ with diagnostics_tab:
     observed_home_rate = None
     observed_draw_rate = None
     observed_away_rate = None
+    expected_log_loss_value = None
+    expected_brier_value = None
 
     if matches_evaluated > 0:
         # Model metrics
@@ -1117,18 +1134,37 @@ with diagnostics_tab:
         prevalence_log_loss = prevalence_ll_sum / matches_evaluated
         prevalence_brier = prevalence_bs_sum / matches_evaluated
 
+        expected_ll_values = [
+            row["expected_log_loss"]
+            for row in filtered_rows
+            if isinstance(row.get("expected_log_loss"), (int, float))
+            and math.isfinite(float(row["expected_log_loss"]))
+        ]
+        expected_bs_values = [
+            row["expected_brier"]
+            for row in filtered_rows
+            if isinstance(row.get("expected_brier"), (int, float))
+            and math.isfinite(float(row["expected_brier"]))
+        ]
+        if expected_ll_values:
+            expected_log_loss_value = sum(expected_ll_values) / len(expected_ll_values)
+        if expected_bs_values:
+            expected_brier_value = sum(expected_bs_values) / len(expected_bs_values)
+
     log_loss_text = "N/A" if log_loss_value is None else f"{log_loss_value:.3f}"
     brier_text = "N/A" if brier_value is None else f"{brier_value:.3f}"
     uniform_log_loss_text = "N/A" if uniform_log_loss is None else f"{uniform_log_loss:.3f}"
     uniform_brier_text = "N/A" if uniform_brier is None else f"{uniform_brier:.3f}"
     prevalence_log_loss_text = "N/A" if prevalence_log_loss is None else f"{prevalence_log_loss:.3f}"
     prevalence_brier_text = "N/A" if prevalence_brier is None else f"{prevalence_brier:.3f}"
+    expected_log_loss_text = "n/a" if expected_log_loss_value is None else f"{expected_log_loss_value:.3f}"
+    expected_brier_text = "n/a" if expected_brier_value is None else f"{expected_brier_value:.3f}"
     st.write(f"Matches evaluated: {matches_evaluated}")
     st.write(
-        f"Log Loss: {log_loss_text} (Uniform: {uniform_log_loss_text} | Prevalence: {prevalence_log_loss_text})"
+        f"Log Loss: {log_loss_text} (Uniform: {uniform_log_loss_text} | Prevalence: {prevalence_log_loss_text} | Expected: {expected_log_loss_text})"
     )
     st.write(
-        f"Brier Score: {brier_text} (Uniform: {uniform_brier_text} | Prevalence: {prevalence_brier_text})"
+        f"Brier Score: {brier_text} (Uniform: {uniform_brier_text} | Prevalence: {prevalence_brier_text} | Expected: {expected_brier_text})"
     )
     if observed_home_rate is not None and observed_draw_rate is not None and observed_away_rate is not None:
         st.caption(
@@ -1418,12 +1454,26 @@ with diagnostics_tab:
                     "model_bs_sum": 0.0,
                     "prev_ll_sum": 0.0,
                     "prev_bs_sum": 0.0,
+                    "expected_ll_sum": 0.0,
+                    "expected_bs_sum": 0.0,
+                    "expected_n": 0,
                     "n": 0,
                 }
             matchday_metric_buckets[matchday_int]["model_ll_sum"] += ll_i
             matchday_metric_buckets[matchday_int]["model_bs_sum"] += bs_i
             matchday_metric_buckets[matchday_int]["prev_ll_sum"] += ll_prev_i
             matchday_metric_buckets[matchday_int]["prev_bs_sum"] += bs_prev_i
+            expected_ll_i = row.get("expected_log_loss")
+            expected_bs_i = row.get("expected_brier")
+            if (
+                isinstance(expected_ll_i, (int, float))
+                and math.isfinite(float(expected_ll_i))
+                and isinstance(expected_bs_i, (int, float))
+                and math.isfinite(float(expected_bs_i))
+            ):
+                matchday_metric_buckets[matchday_int]["expected_ll_sum"] += float(expected_ll_i)
+                matchday_metric_buckets[matchday_int]["expected_bs_sum"] += float(expected_bs_i)
+                matchday_metric_buckets[matchday_int]["expected_n"] += 1
             matchday_metric_buckets[matchday_int]["n"] += 1
 
         if (
@@ -1441,6 +1491,17 @@ with diagnostics_tab:
                 bs_avg = matchday_metric_buckets[md]["model_bs_sum"] / n_md
                 prev_ll_avg = matchday_metric_buckets[md]["prev_ll_sum"] / n_md
                 prev_bs_avg = matchday_metric_buckets[md]["prev_bs_sum"] / n_md
+                expected_n_md = int(matchday_metric_buckets[md]["expected_n"])
+                expected_ll_avg = (
+                    matchday_metric_buckets[md]["expected_ll_sum"] / expected_n_md
+                    if expected_n_md > 0
+                    else float("nan")
+                )
+                expected_bs_avg = (
+                    matchday_metric_buckets[md]["expected_bs_sum"] / expected_n_md
+                    if expected_n_md > 0
+                    else float("nan")
+                )
                 matchday_rows.append(
                     {
                         "matchday": md,
@@ -1451,13 +1512,20 @@ with diagnostics_tab:
                         "prevalence_brier": prev_bs_avg,
                         "uniform_log_loss": uniform_log_loss,
                         "uniform_brier": uniform_brier,
+                        "expected_log_loss": expected_ll_avg,
+                        "expected_brier": expected_bs_avg,
+                        "expected_n": expected_n_md,
                     }
                 )
 
             matchday_df = pd.DataFrame(matchday_rows)
+            chart_matchday_rows = [
+                row for row in matchday_rows
+                if row.get("n", 0) >= 5
+            ]
             log_loss_long_rows = []
             brier_long_rows = []
-            for row in matchday_rows:
+            for row in chart_matchday_rows:
                 md = row["matchday"]
                 n_md = row["n"]
                 log_loss_long_rows.extend(
@@ -1465,6 +1533,12 @@ with diagnostics_tab:
                         {"matchday": md, "metric_value": row["model_log_loss"], "series_name": "Model", "n": n_md},
                         {"matchday": md, "metric_value": row["prevalence_log_loss"], "series_name": "Prevalence", "n": n_md},
                         {"matchday": md, "metric_value": row["uniform_log_loss"], "series_name": "Uniform", "n": n_md},
+                        {
+                            "matchday": md,
+                            "metric_value": row["expected_log_loss"],
+                            "series_name": "Expected",
+                            "n": row.get("expected_n"),
+                        },
                     ]
                 )
                 brier_long_rows.extend(
@@ -1472,6 +1546,12 @@ with diagnostics_tab:
                         {"matchday": md, "metric_value": row["model_brier"], "series_name": "Model", "n": n_md},
                         {"matchday": md, "metric_value": row["prevalence_brier"], "series_name": "Prevalence", "n": n_md},
                         {"matchday": md, "metric_value": row["uniform_brier"], "series_name": "Uniform", "n": n_md},
+                        {
+                            "matchday": md,
+                            "metric_value": row["expected_brier"],
+                            "series_name": "Expected",
+                            "n": row.get("expected_n"),
+                        },
                     ]
                 )
             log_loss_long_df = pd.DataFrame(log_loss_long_rows)
@@ -1492,13 +1572,22 @@ with diagnostics_tab:
                     1 for row in eligible_matchdays_ll
                     if row["model_log_loss"] < row["prevalence_log_loss"]
                 )
+                num_ll_expected = sum(
+                    1 for row in eligible_matchdays_ll
+                    if isinstance(row.get("expected_log_loss"), (int, float))
+                    and math.isfinite(float(row["expected_log_loss"]))
+                    and row["model_log_loss"] < row["expected_log_loss"]
+                )
                 pct_ll_uniform = round((100.0 * num_ll_uniform) / denom_ll)
                 pct_ll_prev = round((100.0 * num_ll_prev) / denom_ll)
-                ll_uniform_text = f"Log Loss: Model beats Uniform: {num_ll_uniform}/{denom_ll} ({pct_ll_uniform}%)"
-                ll_prev_text = f"Log Loss: Model beats Prevalence: {num_ll_prev}/{denom_ll} ({pct_ll_prev}%)"
+                pct_ll_expected = round((100.0 * num_ll_expected) / denom_ll)
+                ll_uniform_text = f"Model beats Uniform: {num_ll_uniform}/{denom_ll} ({pct_ll_uniform}%)"
+                ll_prev_text = f"Model beats Prevalence: {num_ll_prev}/{denom_ll} ({pct_ll_prev}%)"
+                ll_expected_text = f"Model beats Expected: {num_ll_expected}/{denom_ll} ({pct_ll_expected}%)"
             else:
-                ll_uniform_text = "Log Loss: Model beats Uniform: N/A"
-                ll_prev_text = "Log Loss: Model beats Prevalence: N/A"
+                ll_uniform_text = "Model beats Uniform: N/A"
+                ll_prev_text = "Model beats Prevalence: N/A"
+                ll_expected_text = "Model beats Expected: N/A"
 
             eligible_matchdays_bs = [
                 row for row in matchday_rows
@@ -1514,26 +1603,46 @@ with diagnostics_tab:
                     1 for row in eligible_matchdays_bs
                     if row["model_brier"] < row["prevalence_brier"]
                 )
+                num_bs_expected = sum(
+                    1 for row in eligible_matchdays_bs
+                    if isinstance(row.get("expected_brier"), (int, float))
+                    and math.isfinite(float(row["expected_brier"]))
+                    and row["model_brier"] < row["expected_brier"]
+                )
                 pct_bs_uniform = round((100.0 * num_bs_uniform) / denom_bs)
                 pct_bs_prev = round((100.0 * num_bs_prev) / denom_bs)
-                bs_uniform_text = f"Brier: Model beats Uniform: {num_bs_uniform}/{denom_bs} ({pct_bs_uniform}%)"
-                bs_prev_text = f"Brier: Model beats Prevalence: {num_bs_prev}/{denom_bs} ({pct_bs_prev}%)"
+                pct_bs_expected = round((100.0 * num_bs_expected) / denom_bs)
+                bs_uniform_text = f"Model beats Uniform: {num_bs_uniform}/{denom_bs} ({pct_bs_uniform}%)"
+                bs_prev_text = f"Model beats Prevalence: {num_bs_prev}/{denom_bs} ({pct_bs_prev}%)"
+                bs_expected_text = f"Model beats Expected: {num_bs_expected}/{denom_bs} ({pct_bs_expected}%)"
             else:
-                bs_uniform_text = "Brier: Model beats Uniform: N/A"
-                bs_prev_text = "Brier: Model beats Prevalence: N/A"
+                bs_uniform_text = "Model beats Uniform: N/A"
+                bs_prev_text = "Model beats Prevalence: N/A"
+                bs_expected_text = "Model beats Expected: N/A"
 
             md_c1, md_c2 = st.columns(2)
+            series_domain = ["Uniform", "Prevalence", "Model", "Expected"]
+            series_colors = ["#808080", "#8ecae6", "#d62728", "#1d3557"]
             with md_c1:
                 st.write(ll_uniform_text)
                 st.write(ll_prev_text)
+                st.write(ll_expected_text)
                 st.subheader("Matchday Log Loss")
-                ll_line = (
+                if log_loss_long_df.empty:
+                    st.info("No matchdays with at least 5 completed matches.")
+                else:
+                    ll_line = (
                     alt.Chart(log_loss_long_df)
                     .mark_line()
                     .encode(
                         x=alt.X("matchday:Q", title="Matchday"),
                         y=alt.Y("metric_value:Q", title="Log Loss"),
-                        color=alt.Color("series_name:N", title="Series"),
+                        color=alt.Color(
+                            "series_name:N",
+                            title="Series",
+                            scale=alt.Scale(domain=series_domain, range=series_colors),
+                            sort=series_domain,
+                        ),
                         tooltip=[
                             alt.Tooltip("matchday:Q", title="Matchday"),
                             alt.Tooltip("series_name:N", title="Series"),
@@ -1542,13 +1651,18 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                ll_points = (
+                    ll_points = (
                     alt.Chart(log_loss_long_df)
                     .mark_circle(size=50)
                     .encode(
                         x=alt.X("matchday:Q"),
                         y=alt.Y("metric_value:Q"),
-                        color=alt.Color("series_name:N", title="Series"),
+                        color=alt.Color(
+                            "series_name:N",
+                            title="Series",
+                            scale=alt.Scale(domain=series_domain, range=series_colors),
+                            sort=series_domain,
+                        ),
                         tooltip=[
                             alt.Tooltip("matchday:Q", title="Matchday"),
                             alt.Tooltip("series_name:N", title="Series"),
@@ -1557,19 +1671,28 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                st.altair_chart((ll_line + ll_points).properties(height=280), use_container_width=True)
+                    st.altair_chart((ll_line + ll_points).properties(height=280), use_container_width=True)
 
             with md_c2:
                 st.write(bs_uniform_text)
                 st.write(bs_prev_text)
+                st.write(bs_expected_text)
                 st.subheader("Matchday Brier Score")
-                bs_line = (
+                if brier_long_df.empty:
+                    st.info("No matchdays with at least 5 completed matches.")
+                else:
+                    bs_line = (
                     alt.Chart(brier_long_df)
                     .mark_line()
                     .encode(
                         x=alt.X("matchday:Q", title="Matchday"),
                         y=alt.Y("metric_value:Q", title="Brier Score"),
-                        color=alt.Color("series_name:N", title="Series"),
+                        color=alt.Color(
+                            "series_name:N",
+                            title="Series",
+                            scale=alt.Scale(domain=series_domain, range=series_colors),
+                            sort=series_domain,
+                        ),
                         tooltip=[
                             alt.Tooltip("matchday:Q", title="Matchday"),
                             alt.Tooltip("series_name:N", title="Series"),
@@ -1578,13 +1701,18 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                bs_points = (
+                    bs_points = (
                     alt.Chart(brier_long_df)
                     .mark_circle(size=50)
                     .encode(
                         x=alt.X("matchday:Q"),
                         y=alt.Y("metric_value:Q"),
-                        color=alt.Color("series_name:N", title="Series"),
+                        color=alt.Color(
+                            "series_name:N",
+                            title="Series",
+                            scale=alt.Scale(domain=series_domain, range=series_colors),
+                            sort=series_domain,
+                        ),
                         tooltip=[
                             alt.Tooltip("matchday:Q", title="Matchday"),
                             alt.Tooltip("series_name:N", title="Series"),
@@ -1593,7 +1721,7 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                st.altair_chart((bs_line + bs_points).properties(height=280), use_container_width=True)
+                    st.altair_chart((bs_line + bs_points).properties(height=280), use_container_width=True)
 
 st.divider()
 for line in FOOTER_LINES:
