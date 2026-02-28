@@ -10,16 +10,18 @@ import streamlit as st
 
 from data_client import fetch_matches
 from db import get_matches, init_db, save_matches
-from elo import compute_elo_ratings, predict_match
+from elo import DEFAULT_ELO, DEFAULT_HOME_ADVANTAGE, compute_elo_ratings, predict_match
 
 init_db()
 
-DEFAULT_ELO = 1500.0
-DEFAULT_HOME_ADVANTAGE = 100.0
 FINISHED_STATUS = "FINISHED"
 UPCOMING_STATUSES = {"SCHEDULED", "TIMED"}
-MISSING_STARTING_ELO_MSG = "starting_elo.csv not found. Using default starting Elo ratings (1500)."
-INVALID_STARTING_ELO_MSG = "Failed to parse starting_elo.csv. Using default starting Elo ratings (1500)."
+MISSING_STARTING_ELO_MSG = (
+    f"starting_elo.csv not found. Using default starting Elo ratings ({int(DEFAULT_ELO)})."
+)
+INVALID_STARTING_ELO_MSG = (
+    f"Failed to parse starting_elo.csv. Using default starting Elo ratings ({int(DEFAULT_ELO)})."
+)
 MISSING_MODEL_CONFIG_MSG = "model_config.csv not found. Using default home advantage."
 INVALID_MODEL_CONFIG_MSG = "Invalid model_config.csv. Using default home advantage."
 NO_UPCOMING_MSG = "No upcoming matches available for probability prediction."
@@ -49,10 +51,10 @@ CALIBRATION_FULL_BIN_END = 1.0
 CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
-    "Model v0.1.2",
-    "Last updated 2026/02/26",
+    "Model v0.2.0",
+    "Last updated 2026/02/27",
     "K = 20",
-    "Home Advantage = 100",
+    "Home Advantage = League Specific (default 75)",
     "Goal-Difference Multiplier = ON",
     "Dynamic Draw Model = ON",
     "Data source: football-data.org",
@@ -926,6 +928,9 @@ with diagnostics_tab:
         diagnostics_sources.append((finished_matches, pregame_ratings, starting_ratings, home_advantage))
 
     completed_pred_rows = []
+    delta_analysis_rows = []
+    skipped_missing_pregame = 0
+    skipped_invalid_delta_probs = 0
     for source_finished_matches, source_pregame_ratings, source_starting_ratings, source_home_advantage in diagnostics_sources:
         for match in source_finished_matches:
             home_team = match.get("home_team")
@@ -960,6 +965,50 @@ with diagnostics_tab:
                     "actual_home_win": 1 if home_score > away_score else 0,
                     "actual_draw": 1 if home_score == away_score else 0,
                     "actual_home_loss": 1 if home_score < away_score else 0,
+                }
+            )
+
+            # Delta-binned diagnostics require pregame ratings explicitly from pregame map.
+            if match_id not in source_pregame_ratings:
+                skipped_missing_pregame += 1
+                continue
+            pregame_home_elo_delta = prepost.get("pregame_home_elo")
+            pregame_away_elo_delta = prepost.get("pregame_away_elo")
+            if pregame_home_elo_delta is None or pregame_away_elo_delta is None:
+                skipped_missing_pregame += 1
+                continue
+            p_home_delta, p_draw_delta, p_away_delta = predict_match(
+                home_team,
+                away_team,
+                {
+                    home_team: pregame_home_elo_delta,
+                    away_team: pregame_away_elo_delta,
+                },
+                home_advantage=source_home_advantage,
+            )
+            probs_delta = [p_home_delta, p_draw_delta, p_away_delta]
+            if any(v is None for v in probs_delta):
+                skipped_invalid_delta_probs += 1
+                continue
+            if any((not isinstance(v, (int, float))) for v in probs_delta):
+                skipped_invalid_delta_probs += 1
+                continue
+            if any(math.isnan(float(v)) for v in probs_delta):
+                skipped_invalid_delta_probs += 1
+                continue
+            delta_value = (pregame_home_elo_delta + source_home_advantage) - pregame_away_elo_delta
+            if not isinstance(delta_value, (int, float)) or math.isnan(float(delta_value)):
+                skipped_invalid_delta_probs += 1
+                continue
+            delta_analysis_rows.append(
+                {
+                    "delta": float(delta_value),
+                    "p_home": float(p_home_delta),
+                    "p_draw": float(p_draw_delta),
+                    "p_away": float(p_away_delta),
+                    "y_home": 1 if home_score > away_score else 0,
+                    "y_draw": 1 if home_score == away_score else 0,
+                    "y_away": 1 if home_score < away_score else 0,
                 }
             )
 
@@ -1211,6 +1260,134 @@ with diagnostics_tab:
                 )
                 chart = (ref_line + cal_error + cal_line + cal_points).resolve_scale(x="shared", y="shared")
                 st.altair_chart(chart.properties(height=280), use_container_width=True)
+
+        st.subheader("Calibration by Elo Delta (pregame Elo + home advantage)")
+        if skipped_missing_pregame > 0 or skipped_invalid_delta_probs > 0:
+            st.caption(
+                f"Delta calibration skips: missing pregame={skipped_missing_pregame}, invalid probability/delta={skipped_invalid_delta_probs}"
+            )
+        if len(delta_analysis_rows) < 10:
+            st.warning("Too few completed matches for delta-binned calibration (<10).")
+        else:
+            delta_df = pd.DataFrame(delta_analysis_rows)
+
+            def delta_bin_info(delta: float) -> tuple[str, int]:
+                if delta < -200:
+                    return "< -200", 0
+                if delta < -100:
+                    return "-200 to -100", 1
+                if delta < -50:
+                    return "-100 to -50", 2
+                if delta < 50:
+                    return "-50 to 50", 3
+                if delta < 100:
+                    return "50 to 100", 4
+                if delta < 200:
+                    return "100 to 200", 5
+                return "> 200", 6
+
+            delta_df["bin_label"] = delta_df["delta"].apply(lambda d: delta_bin_info(d)[0])
+            delta_df["bin_order"] = delta_df["delta"].apply(lambda d: delta_bin_info(d)[1])
+            bin_order_labels = ["< -200", "-200 to -100", "-100 to -50", "-50 to 50", "50 to 100", "100 to 200", "> 200"]
+
+            delta_agg = (
+                delta_df.groupby(["bin_label", "bin_order"], as_index=False)
+                .agg(
+                    n=("delta", "size"),
+                    pred_home=("p_home", "mean"),
+                    pred_draw=("p_draw", "mean"),
+                    pred_away=("p_away", "mean"),
+                    k_home=("y_home", "sum"),
+                    k_draw=("y_draw", "sum"),
+                    k_away=("y_away", "sum"),
+                )
+                .sort_values("bin_order")
+            )
+            delta_agg["obs_home"] = delta_agg["k_home"] / delta_agg["n"]
+            delta_agg["obs_draw"] = delta_agg["k_draw"] / delta_agg["n"]
+            delta_agg["obs_away"] = delta_agg["k_away"] / delta_agg["n"]
+            delta_agg[["obs_home_lo", "obs_home_hi"]] = delta_agg.apply(
+                lambda r: pd.Series(wilson_ci(int(r["k_home"]), int(r["n"]), z=1.96)),
+                axis=1,
+            )
+            delta_agg[["obs_draw_lo", "obs_draw_hi"]] = delta_agg.apply(
+                lambda r: pd.Series(wilson_ci(int(r["k_draw"]), int(r["n"]), z=1.96)),
+                axis=1,
+            )
+            delta_agg[["obs_away_lo", "obs_away_hi"]] = delta_agg.apply(
+                lambda r: pd.Series(wilson_ci(int(r["k_away"]), int(r["n"]), z=1.96)),
+                axis=1,
+            )
+
+            chart_specs = [
+                ("Home Win", "pred_home", "obs_home", "obs_home_lo", "obs_home_hi"),
+                ("Draw", "pred_draw", "obs_draw", "obs_draw_lo", "obs_draw_hi"),
+                ("Home Loss", "pred_away", "obs_away", "obs_away_lo", "obs_away_hi"),
+            ]
+            d1, d2, d3 = st.columns(3)
+            for col, (title, pred_col, obs_col, lo_col, hi_col) in zip((d1, d2, d3), chart_specs):
+                with col:
+                    st.subheader(title)
+                    pred_obs_long = pd.concat(
+                        [
+                            delta_agg[["bin_label", "bin_order", "n", pred_col]].rename(
+                                columns={pred_col: "value"}
+                            ).assign(series_name="Predicted"),
+                            delta_agg[["bin_label", "bin_order", "n", obs_col]].rename(
+                                columns={obs_col: "value"}
+                            ).assign(series_name="Observed"),
+                        ],
+                        ignore_index=True,
+                    )
+
+                    line = (
+                        alt.Chart(pred_obs_long)
+                        .mark_line()
+                        .encode(
+                            x=alt.X("bin_label:N", title="Elo delta bin", sort=bin_order_labels),
+                            y=alt.Y("value:Q", title="Probability", scale=alt.Scale(domain=[0.0, 1.0])),
+                            color=alt.Color("series_name:N", title="Series"),
+                            detail="series_name:N",
+                            tooltip=[
+                                alt.Tooltip("bin_label:N", title="Bin"),
+                                alt.Tooltip("series_name:N", title="Series"),
+                                alt.Tooltip("value:Q", title="Value", format=".3f"),
+                                alt.Tooltip("n:Q", title="n"),
+                            ],
+                        )
+                    )
+                    points = (
+                        alt.Chart(pred_obs_long)
+                        .mark_circle(size=55)
+                        .encode(
+                            x=alt.X("bin_label:N", sort=bin_order_labels),
+                            y=alt.Y("value:Q", scale=alt.Scale(domain=[0.0, 1.0])),
+                            color=alt.Color("series_name:N", title="Series"),
+                            tooltip=[
+                                alt.Tooltip("bin_label:N", title="Bin"),
+                                alt.Tooltip("series_name:N", title="Series"),
+                                alt.Tooltip("value:Q", title="Value", format=".3f"),
+                                alt.Tooltip("n:Q", title="n"),
+                            ],
+                        )
+                    )
+                    obs_error = (
+                        alt.Chart(delta_agg)
+                        .mark_errorbar(color="#6b6b6b")
+                        .encode(
+                            x=alt.X("bin_label:N", sort=bin_order_labels),
+                            y=alt.Y(lo_col + ":Q", scale=alt.Scale(domain=[0.0, 1.0])),
+                            y2=alt.Y2(hi_col + ":Q"),
+                            tooltip=[
+                                alt.Tooltip("bin_label:N", title="Bin"),
+                                alt.Tooltip("n:Q", title="n"),
+                                alt.Tooltip(obs_col + ":Q", title="Observed", format=".3f"),
+                                alt.Tooltip(lo_col + ":Q", title="95% CI Low", format=".3f"),
+                                alt.Tooltip(hi_col + ":Q", title="95% CI High", format=".3f"),
+                            ],
+                        )
+                    )
+                    st.altair_chart((obs_error + line + points).properties(height=280), use_container_width=True)
 
         # Matchday performance charts (exclude rows without matchday only for these charts).
         matchday_metric_buckets: dict[int, dict[str, float]] = {}

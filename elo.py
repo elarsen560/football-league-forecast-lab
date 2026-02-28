@@ -1,13 +1,16 @@
 import math
 
+DEFAULT_ELO = 1800.0
+DEFAULT_HOME_ADVANTAGE = 75.0
+
 
 def compute_elo_ratings(
     matches: list[dict],
     starting_ratings: dict[str, float] = None,
     include_pregame: bool = False,
-    home_advantage: float = 100.0,
+    home_advantage: float = DEFAULT_HOME_ADVANTAGE,
 ) -> dict[str, float] | tuple[dict[str, float], dict[int, dict[str, float]]]:
-    starting_rating = 1500.0
+    starting_rating = DEFAULT_ELO
     k_factor = 20.0
     ratings: dict[str, float] = {}
     pregame_ratings: dict[int, dict[str, float]] = {}
@@ -63,7 +66,7 @@ def predict_match(
     home_team: str,
     away_team: str,
     ratings: dict[str, float],
-    home_advantage: float = 100.0,
+    home_advantage: float = DEFAULT_HOME_ADVANTAGE,
 ) -> tuple[float, float, float]:
     """
     Return (p_home, p_draw, p_away) using current Elo ratings.
@@ -73,7 +76,7 @@ def predict_match(
       - Compute dynamic draw probability from E_home * E_away.
       - Split draw mass equally from home/away expectations.
     """
-    starting_rating = 1500.0
+    starting_rating = DEFAULT_ELO
     r_home = ratings.get(home_team, starting_rating)
     r_away = ratings.get(away_team, starting_rating)
     r_home_with_adv = r_home + home_advantage
