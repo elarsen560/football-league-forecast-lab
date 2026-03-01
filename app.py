@@ -1,7 +1,9 @@
 import csv
+import hashlib
 import math
 import os
 import random
+import sqlite3
 from datetime import datetime, timezone
 
 import altair as alt
@@ -41,6 +43,7 @@ COMPETITION_OPTIONS = {
     "Ligue 1": "FL1",
     "Primeira Liga": "PPL",
 }
+COMPETITION_NAME_BY_CODE = {code: name for name, code in COMPETITION_OPTIONS.items()}
 SEASON_OPTIONS = [2025]
 MONTE_CARLO_MIN = 100
 MONTE_CARLO_MAX = 20000
@@ -54,8 +57,8 @@ CALIBRATION_FULL_BIN_END = 1.0
 CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
-    "Model v0.3.0",
-    "Last updated 2026/02/28",
+    "Model v0.5.0",
+    "Last updated 2026/03/01",
     "K = 20",
     "Home Advantage = League Specific (default 75)",
     "Goal-Difference Multiplier = ON",
@@ -129,6 +132,90 @@ def _load_home_advantage_config_cached(path: str, mtime: float | None) -> tuple[
 def load_home_advantage_config(path: str = "model_config.csv") -> tuple[dict[str, float], str | None]:
     """Load home-advantage settings by competition with mtime-sensitive cache invalidation."""
     return _load_home_advantage_config_cached(path, _file_mtime(path))
+
+
+def get_db_freshness_signature(
+    season: int,
+    competition_codes: tuple[str, ...],
+) -> tuple[tuple[str, int, str | None], ...]:
+    """Return per-competition DB freshness signature for cache invalidation."""
+    if not competition_codes:
+        return tuple()
+
+    placeholders = ",".join(["?"] * len(competition_codes))
+    query = f"""
+        SELECT competition, COUNT(*) AS row_count, MAX(utc_date) AS max_utc_date
+        FROM matches
+        WHERE season = ? AND competition IN ({placeholders})
+        GROUP BY competition
+    """
+    signature_map = {code: (0, None) for code in competition_codes}
+    with sqlite3.connect("soccer.db") as conn:
+        rows = conn.execute(query, (season, *competition_codes)).fetchall()
+    for competition, row_count, max_utc_date in rows:
+        signature_map[competition] = (int(row_count or 0), max_utc_date)
+    return tuple((code, signature_map[code][0], signature_map[code][1]) for code in sorted(competition_codes))
+
+
+@st.cache_data(show_spinner=False)
+def compute_global_ratings_cached(
+    season: int,
+    competition_codes: tuple[str, ...],
+    competition_name_items: tuple[tuple[str, str], ...],
+    starting_elo_mtime: float | None,
+    model_config_mtime: float | None,
+    db_freshness_signature: tuple[tuple[str, int, str | None], ...],
+) -> list[dict]:
+    """Compute global ratings table across all supported competitions from local DB."""
+    del starting_elo_mtime, model_config_mtime, db_freshness_signature
+
+    code_to_name = dict(competition_name_items)
+    ha_map, _ = load_home_advantage_config()
+    global_rows = []
+
+    for competition_code in competition_codes:
+        matches = get_matches(competition=competition_code, season=season)
+        if not matches:
+            continue
+        finished_matches = sorted(
+            [m for m in matches if m.get("status") == FINISHED_STATUS],
+            key=lambda m: m.get("utc_date") or "",
+        )
+        if not finished_matches:
+            continue
+        comp_starting_ratings, _ = load_starting_ratings_csv(competition=competition_code)
+        comp_home_advantage = ha_map.get(competition_code, DEFAULT_HOME_ADVANTAGE)
+        ratings = compute_elo_ratings(
+            finished_matches,
+            comp_starting_ratings,
+            include_pregame=False,
+            home_advantage=comp_home_advantage,
+        )
+        for team, raw_elo in ratings.items():
+            global_rows.append(
+                {
+                    "team": team,
+                    "competition_name": code_to_name.get(competition_code, competition_code),
+                    "raw_elo": float(raw_elo),
+                }
+            )
+
+    global_rows.sort(
+        key=lambda row: (-row["raw_elo"], row["team"], row["competition_name"]),
+    )
+
+    display_rows = []
+    for idx, row in enumerate(global_rows, start=1):
+        display_rows.append(
+            {
+                "rank": idx,
+                "team_name": row["team"],
+                "competition_name": row["competition_name"],
+                "elo_raw": row["raw_elo"],
+                "elo_display": round(row["raw_elo"]),
+            }
+        )
+    return display_rows
 
 
 def build_calibration_df(
@@ -528,8 +615,8 @@ completed_matches = season_context["completed_matches"]
 upcoming_matches = season_context["upcoming_matches"]
 pregame_ratings = season_context["pregame_ratings"]
 
-data_elo_tab, simulations_tab, team_deep_dive_tab, diagnostics_tab = st.tabs(
-    ["Data & Elo", "Simulations", "Team Deep Dive", "Diagnostics"]
+data_elo_tab, simulations_tab, team_deep_dive_tab, diagnostics_tab, global_ratings_tab = st.tabs(
+    ["Data & Elo", "Simulations", "Team Deep Dive", "Diagnostics", "Global Ratings"]
 )
 
 with data_elo_tab:
@@ -908,6 +995,172 @@ with simulations_tab:
                 st.write(f"Avg normalized entropy (Top 5): {zone_avg_text(top5_ranks)}")
                 st.write(f"Avg normalized entropy (Midtable): {zone_avg_text(mid_ranks)}")
                 st.write(f"Avg normalized entropy (Bottom 5): {zone_avg_text(bottom5_ranks)}")
+
+with global_ratings_tab:
+    st.subheader("Global Ratings")
+    st.caption("Uses local DB snapshot for selected season.")
+
+    all_competition_codes = tuple(dict.fromkeys(COMPETITION_OPTIONS.values()))
+    db_signature = get_db_freshness_signature(
+        season=int(season),
+        competition_codes=all_competition_codes,
+    )
+    global_ratings_rows = compute_global_ratings_cached(
+        season=int(season),
+        competition_codes=all_competition_codes,
+        competition_name_items=tuple(COMPETITION_NAME_BY_CODE.items()),
+        starting_elo_mtime=_file_mtime("starting_elo.csv"),
+        model_config_mtime=_file_mtime("model_config.csv"),
+        db_freshness_signature=db_signature,
+    )
+
+    if not global_ratings_rows:
+        st.warning("No competition data found in local DB for the selected season.")
+    else:
+        global_ratings_df = pd.DataFrame(global_ratings_rows)
+        table_df = global_ratings_df.rename(
+            columns={
+                "team_name": "team name",
+                "competition_name": "competition name",
+                "elo_display": "current Elo",
+            }
+        )[["rank", "team name", "competition name", "current Elo"]]
+        st.dataframe(
+            table_df,
+            hide_index=True,
+            height=800,
+            use_container_width=True,
+        )
+
+        st.subheader("Elo Distribution by League")
+        ratings_df = global_ratings_df.rename(columns={"elo_raw": "elo"})[
+            ["team_name", "competition_name", "elo"]
+        ].dropna(subset=["team_name", "competition_name", "elo"])
+        if ratings_df.empty:
+            st.info("No valid Elo values available for distribution chart.")
+        else:
+            league_stats_rows = []
+            for competition_name, group in ratings_df.groupby("competition_name"):
+                if group.empty:
+                    continue
+                best_row = group.sort_values(["elo", "team_name"], ascending=[False, True]).iloc[0]
+                worst_row = group.sort_values(["elo", "team_name"], ascending=[True, True]).iloc[0]
+                league_stats_rows.append(
+                    {
+                        "competition_name": competition_name,
+                        "median_elo": float(group["elo"].median()),
+                        "best_team": best_row["team_name"],
+                        "best_elo": float(best_row["elo"]),
+                        "worst_team": worst_row["team_name"],
+                        "worst_elo": float(worst_row["elo"]),
+                    }
+                )
+            league_stats_df = pd.DataFrame(league_stats_rows)
+            ratings_df = ratings_df.merge(league_stats_df, on="competition_name", how="left")
+
+            def deterministic_jitter(team_name: str, competition_name: str) -> float:
+                token = f"{competition_name}::{team_name}"
+                hashed = hashlib.md5(token.encode("utf-8")).hexdigest()
+                u = int(hashed[:8], 16) / 0xFFFFFFFF
+                return (u - 0.5) * 0.0015
+
+            ratings_df["jitter_x_raw"] = ratings_df.apply(
+                lambda r: deterministic_jitter(str(r["team_name"]), str(r["competition_name"])),
+                axis=1,
+            )
+            ratings_df["jitter_x"] = (
+                ratings_df["jitter_x_raw"]
+                - ratings_df.groupby("competition_name")["jitter_x_raw"].transform("mean")
+            )
+
+            elo_min = float(ratings_df["elo"].min())
+            elo_max = float(ratings_df["elo"].max())
+            league_counts = ratings_df.groupby("competition_name").size()
+            density_leagues = set(league_counts[league_counts >= 2].index.tolist())
+            density_source_df = ratings_df[ratings_df["competition_name"].isin(density_leagues)].copy()
+
+            points = (
+                alt.Chart(ratings_df)
+                .mark_circle(size=24, color="#1f4e79", opacity=0.5)
+                .encode(
+                    x=alt.X("jitter_x:Q", title=None, axis=None),
+                    y=alt.Y("elo:Q", title="Elo"),
+                )
+            )
+
+            if elo_min == elo_max or density_source_df.empty:
+                st.caption("Density unavailable for current data; showing team points only.")
+                distribution_chart = (
+                    points.properties(width=95, height=460)
+                    .facet(
+                        column=alt.Column(
+                            "competition_name:N",
+                            sort=alt.SortField("median_elo", order="descending"),
+                            header=alt.Header(labelAngle=0, title=None),
+                        )
+                    )
+                    .resolve_scale(y="shared", x="independent")
+                )
+                st.altair_chart(distribution_chart, use_container_width=True)
+            else:
+                chart_base = (
+                    alt.Chart()
+                    .transform_filter(
+                        alt.FieldOneOfPredicate(
+                            field="competition_name",
+                            oneOf=sorted(density_leagues),
+                        )
+                    )
+                    .transform_density(
+                        density="elo",
+                        as_=["elo_value", "density"],
+                        groupby=[
+                            "competition_name",
+                            "median_elo",
+                            "best_team",
+                            "best_elo",
+                            "worst_team",
+                            "worst_elo",
+                        ],
+                        extent=[elo_min, elo_max],
+                        steps=60,
+                    )
+                    .transform_calculate(
+                        density_neg="-datum.density"
+                    )
+                )
+                violin = chart_base.mark_area(
+                    orient="horizontal",
+                    opacity=0.25,
+                    color="#cfe8ff",
+                    stroke="#8fb7de",
+                    strokeWidth=0.8,
+                ).encode(
+                    y=alt.Y("elo_value:Q", title="Elo"),
+                    x=alt.X("density_neg:Q", title=None, axis=None),
+                    x2=alt.X2("density:Q"),
+                    tooltip=[
+                        alt.Tooltip("competition_name:N", title="League"),
+                        alt.Tooltip("median_elo:Q", title="Median Elo", format=".0f"),
+                        alt.Tooltip("best_team:N", title="Best team"),
+                        alt.Tooltip("best_elo:Q", title="Best Elo", format=".0f"),
+                        alt.Tooltip("worst_team:N", title="Worst team"),
+                        alt.Tooltip("worst_elo:Q", title="Worst Elo", format=".0f"),
+                    ],
+                )
+                distribution_chart = (
+                    alt.layer(violin, points, data=ratings_df)
+                    .properties(width=95, height=460)
+                    .facet(
+                        column=alt.Column(
+                            "competition_name:N",
+                            sort=alt.SortField("median_elo", order="descending"),
+                            header=alt.Header(labelAngle=0, title=None),
+                        )
+                    )
+                    .resolve_scale(y="shared", x="independent")
+                )
+                st.altair_chart(distribution_chart, use_container_width=True)
 
 with team_deep_dive_tab:
     teams_for_select = sorted(
