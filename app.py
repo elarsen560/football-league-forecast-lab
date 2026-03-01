@@ -34,9 +34,12 @@ PROBABILITY_COLUMNS = ("p_win", "p_draw", "p_loss")
 COMPETITION_OPTIONS = {
     "Eredivisie": "DED",
     "Premier League": "PL",
+    "Championship": "ELC",
     "Bundesliga": "BL1",
     "Serie A": "SA",
     "La Liga": "PD",
+    "Ligue 1": "FL1",
+    "Primeira Liga": "PPL",
 }
 SEASON_OPTIONS = [2025]
 MONTE_CARLO_MIN = 100
@@ -756,6 +759,32 @@ with simulations_tab:
                 entropy_chart_df["plausible_ranks"] = entropy_chart_df["entropy"].apply(
                     lambda h: math.exp(h) if isinstance(h, (int, float)) and math.isfinite(float(h)) else None
                 )
+                top_expected_rank_map = {}
+                top_expected_prob_map = {}
+                if num_simulations and n_positions > 0:
+                    for team in entropy_chart_df["team"].tolist():
+                        if team not in position_counts:
+                            top_expected_rank_map[team] = None
+                            top_expected_prob_map[team] = None
+                            continue
+                        probs = [position_counts[team][idx] / float(num_simulations) for idx in range(n_positions)]
+                        row_sum = sum(probs)
+                        if not math.isfinite(row_sum) or row_sum <= 0.0:
+                            top_expected_rank_map[team] = None
+                            top_expected_prob_map[team] = None
+                            continue
+                        probs = [p / row_sum for p in probs]
+                        best_rank = None
+                        best_prob = None
+                        for idx, p in enumerate(probs):
+                            rank = idx + 1
+                            if best_prob is None or p > best_prob or (p == best_prob and rank < best_rank):
+                                best_prob = p
+                                best_rank = rank
+                        top_expected_rank_map[team] = best_rank
+                        top_expected_prob_map[team] = best_prob
+                entropy_chart_df["top_expected_rank"] = entropy_chart_df["team"].map(top_expected_rank_map)
+                entropy_chart_df["top_expected_prob"] = entropy_chart_df["team"].map(top_expected_prob_map)
                 entropy_chart = (
                     alt.Chart(entropy_chart_df)
                     .mark_bar()
@@ -781,6 +810,8 @@ with simulations_tab:
                             alt.Tooltip("entropy_norm:Q", title="Normalized entropy", format=".3f"),
                             alt.Tooltip("entropy:Q", title="Entropy (nats)", format=".3f"),
                             alt.Tooltip("plausible_ranks:Q", title="Plausible finishing ranks", format=".1f"),
+                            alt.Tooltip("top_expected_rank:Q", title="Top expected rank", format="d"),
+                            alt.Tooltip("top_expected_prob:Q", title="Top expected prob", format=".3f"),
                         ],
                     )
                     .properties(height=max(500, 34 * len(entropy_chart_df)))
@@ -913,18 +944,29 @@ with team_deep_dive_tab:
             match_id = match.get("match_id")
             home_team = match.get("home_team")
             away_team = match.get("away_team")
+            home_score = match.get("home_score")
+            away_score = match.get("away_score")
             prepost = pregame_ratings.get(match_id, {})
             is_home = home_team == selected_team
+            opponent = away_team if is_home else home_team
+            venue = "Home" if is_home else "Away"
+            pregame_team_elo = (
+                prepost.get("pregame_home_elo") if is_home else prepost.get("pregame_away_elo")
+            )
             postgame_team_elo = (
                 prepost.get("postgame_home_elo") if is_home else prepost.get("postgame_away_elo")
             )
-            if postgame_team_elo is None:
+            if postgame_team_elo is None or pregame_team_elo is None:
                 continue
             elo_evolution_rows.append(
                 {
                     "utc_date": match.get("utc_date"),
                     "date": format_display_date(match.get("utc_date")),
                     "elo": postgame_team_elo,
+                    "elo_change": postgame_team_elo - pregame_team_elo,
+                    "opponent": opponent,
+                    "venue": venue,
+                    "score": f"{home_score}-{away_score}",
                 }
             )
 
@@ -946,7 +988,11 @@ with team_deep_dive_tab:
                         y=alt.Y("elo:Q", title="Elo", scale=y_scale),
                         tooltip=[
                             alt.Tooltip("date:N", title="Date"),
-                            alt.Tooltip("elo:Q", title="Elo", format=".1f"),
+                            alt.Tooltip("elo:Q", title="Postgame Elo", format=".0f"),
+                            alt.Tooltip("opponent:N", title="Opponent"),
+                            alt.Tooltip("venue:N", title="Venue"),
+                            alt.Tooltip("score:N", title="Score"),
+                            alt.Tooltip("elo_change:Q", title="Elo change", format=".0f"),
                         ],
                     )
                 )
@@ -958,7 +1004,11 @@ with team_deep_dive_tab:
                         y=alt.Y("elo:Q", scale=y_scale),
                         tooltip=[
                             alt.Tooltip("date:N", title="Date"),
-                            alt.Tooltip("elo:Q", title="Elo", format=".1f"),
+                            alt.Tooltip("elo:Q", title="Postgame Elo", format=".0f"),
+                            alt.Tooltip("opponent:N", title="Opponent"),
+                            alt.Tooltip("venue:N", title="Venue"),
+                            alt.Tooltip("score:N", title="Score"),
+                            alt.Tooltip("elo_change:Q", title="Elo change", format=".0f"),
                         ],
                     )
                 )
