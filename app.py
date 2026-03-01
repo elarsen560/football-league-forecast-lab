@@ -1136,7 +1136,13 @@ with diagnostics_tab:
     aggregate_all_leagues = st.checkbox("Aggregate across all leagues", value=False)
     diagnostics_sources = []
     if aggregate_all_leagues:
+        aggregate_refresh_failures = []
         for comp_code in sorted(set(COMPETITION_OPTIONS.values())):
+            try:
+                comp_fetched_matches, _ = fetch_matches_cached(competition=comp_code, season=int(season))
+                save_matches(comp_fetched_matches, competition=comp_code, season=int(season))
+            except Exception:
+                aggregate_refresh_failures.append(comp_code)
             comp_matches = get_matches(comp_code, int(season))
             comp_starting_ratings, _ = load_starting_ratings_csv(competition=comp_code)
             comp_home_advantage = ha_map.get(comp_code, DEFAULT_HOME_ADVANTAGE)
@@ -1152,6 +1158,12 @@ with diagnostics_tab:
                     comp_starting_ratings,
                     comp_home_advantage,
                 )
+            )
+        if aggregate_refresh_failures:
+            failed_codes = ", ".join(sorted(aggregate_refresh_failures))
+            st.warning(
+                f"Failed to refresh API data for: {failed_codes}. "
+                "Using most recent local DB data for those leagues; it may be stale."
             )
     else:
         diagnostics_sources.append((finished_matches, pregame_ratings, starting_ratings, home_advantage))
