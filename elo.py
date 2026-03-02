@@ -83,7 +83,39 @@ def predict_match(
 
     e_home = 1.0 / (1.0 + 10.0 ** ((r_away - r_home_with_adv) / 400.0))
     e_away = 1.0 - e_home
-    p_draw = (4.0 / 3.0) * (e_home * e_away)
-    p_home = e_home - (p_draw / 2.0)
-    p_away = e_away - (p_draw / 2.0)
+    p_draw_raw = (4.0 / 3.0) * (e_home * e_away)
+
+    a = 0.05
+    p_draw = math.sqrt((a * a) + (p_draw_raw * p_draw_raw))
+    denom = math.sqrt((a * a) + ((1.0 / 3.0) * (1.0 / 3.0)))
+    p_draw = (p_draw / denom) * (1.0 / 3.0)
+
+    b = 3.0 * ((1.0 / 3.0) - p_draw_raw)
+    b = max(0.0, min(1.0, b))
+    f = 0.5 + (0.5 * b)
+
+    if e_home > e_away:
+        p_home = e_home - (f * p_draw)
+        p_away = e_away - ((1.0 - f) * p_draw)
+        if p_away < 0.0:
+            p_away = 0.0
+            p_home = 1.0 - p_draw
+    elif e_away > e_home:
+        p_home = e_home - ((1.0 - f) * p_draw)
+        p_away = e_away - (f * p_draw)
+        if p_home < 0.0:
+            p_home = 0.0
+            p_away = 1.0 - p_draw
+    else:
+        p_home = e_home - (0.5 * p_draw)
+        p_away = e_away - (0.5 * p_draw)
+
+    p_home = max(0.0, p_home)
+    p_away = max(0.0, p_away)
+    p_draw = max(0.0, p_draw)
+    s = p_home + p_draw + p_away
+    if s > 0.0 and abs(s - 1.0) > 1e-9:
+        p_home /= s
+        p_draw /= s
+        p_away /= s
     return p_home, p_draw, p_away

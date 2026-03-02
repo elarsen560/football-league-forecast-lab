@@ -57,7 +57,7 @@ CALIBRATION_FULL_BIN_END = 1.0
 CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
-    "Model v0.5.0",
+    "Model v0.6.0",
     "Last updated 2026/03/01",
     "K = 20",
     "Home Advantage = League Specific (default 75)",
@@ -1081,10 +1081,14 @@ with global_ratings_tab:
 
             points = (
                 alt.Chart(ratings_df)
-                .mark_circle(size=24, color="#1f4e79", opacity=0.5)
+                .mark_circle(size=28, color="#2f6fb0", opacity=0.9, stroke="#f5f7fa", strokeWidth=0.7)
                 .encode(
                     x=alt.X("jitter_x:Q", title=None, axis=None),
                     y=alt.Y("elo:Q", title="Elo"),
+                    tooltip=[
+                        alt.Tooltip("team_name:N", title="Team name"),
+                        alt.Tooltip("elo:Q", title="Current Elo", format=".0f"),
+                    ],
                 )
             )
 
