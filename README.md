@@ -12,6 +12,7 @@ Streamlit app for league forecasting using football-data.org match data, SQLite 
 - Shows team- and rank-level uncertainty (entropy) from simulation outputs.
 - Provides diagnostics (calibration, log loss, Brier score, matchday performance).
 - Includes Team Deep Dive with Elo evolution and fixture-level probability context.
+- Includes a Global Ratings view across all supported leagues for the selected season.
 
 ## Current scope
 
@@ -29,7 +30,7 @@ Streamlit app for league forecasting using football-data.org match data, SQLite 
 ## Project structure
 
 - `app.py`  
-  Main Streamlit app: UI, data loading, caching flow, season context construction, simulation, diagnostics, entropy visualizations.
+  Main Streamlit app: UI, data loading, caching flow, season context construction, simulation, diagnostics, entropy visualizations, and global cross-league ratings.
 - `data_client.py`  
   football-data.org client and response normalization.
 - `db.py`  
@@ -164,11 +165,13 @@ Storage/update pattern:
 ### Match probability model (`predict_match`)
 
 - Base home expectation from Elo (with configured home advantage).
-- Draw model (dynamic):
-  - `p_draw = (4/3) * (E_home * E_away)`
-- Win/loss adjusted by splitting draw mass:
-  - `p_home = E_home - p_draw/2`
-  - `p_away = E_away - p_draw/2`
+- Draw model (dynamic, floor-adjusted):
+  - starts from `p_draw_raw = (4/3) * (E_home * E_away)`
+  - applies normalized RMS-style floor adjustment to get final `p_draw`
+- Win/loss allocation subtracts draw mass asymmetrically toward the favorite side:
+  - even matchups reduce symmetrically
+  - larger mismatches shift more draw subtraction to the favorite
+  - includes defensive clamping/renormalization safeguards
 
 ## Simulation summary
 
@@ -185,6 +188,7 @@ Storage/update pattern:
   - position-probability matrix table
   - Team Entropy
   - Rank Entropy
+  - Global Ratings tab includes a league-wise Elo distribution visualization (violin + team dots)
 
 ## Diagnostics summary
 
