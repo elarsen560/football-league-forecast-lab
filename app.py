@@ -58,7 +58,7 @@ CALIBRATION_FULL_BIN_WIDTH = 0.1
 
 FOOTER_LINES = [
     "Model v0.6.0",
-    "Last updated 2026/03/01",
+    "Last updated 2026/03/02",
     "K = 20",
     "Home Advantage = League Specific (default 75)",
     "Goal-Difference Multiplier = ON",
