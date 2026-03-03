@@ -12,12 +12,13 @@ import pandas as pd
 import streamlit as st
 
 from data_client import fetch_matches
-from db import get_matches, init_db, save_matches
+from db import DB_PATH, get_matches, init_db, save_matches
 from elo import DEFAULT_ELO, DEFAULT_HOME_ADVANTAGE, compute_elo_ratings, predict_match
 
 logger = logging.getLogger(__name__)
 
 _CSV_LOADER_TEST_COUNTS = {"starting_elo": 0, "model_config": 0}
+APP_DB_PATH = DB_PATH
 
 init_db()
 
@@ -584,6 +585,15 @@ def _run_csv_cache_self_test() -> None:
             assert _CSV_LOADER_TEST_COUNTS["model_config"] == 2, "model_config cache should invalidate on mtime change"
         finally:
             os.environ.pop("RUN_CSV_CACHE_SELF_TEST", None)
+
+
+def _run_db_path_self_test() -> None:
+    """Internal check that app DB path matches db.DB_PATH."""
+    app_db_abs = os.path.abspath(APP_DB_PATH)
+    db_db_abs = os.path.abspath(DB_PATH)
+    print(f"app_db_path={app_db_abs}")
+    print(f"db_db_path={db_db_abs}")
+    assert app_db_abs == db_db_abs, "App DB path must match db.DB_PATH"
 
 
 def split_matches_by_status(stored_matches: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -2515,3 +2525,5 @@ if __name__ == "__main__" and os.getenv("RUN_DB_WRITE_SKIP_SELF_TEST") == "1":
     _run_db_write_skip_self_test()
 if __name__ == "__main__" and os.getenv("RUN_CSV_CACHE_SELF_TEST") == "1":
     _run_csv_cache_self_test()
+if __name__ == "__main__" and os.getenv("RUN_DB_PATH_SELF_TEST") == "1":
+    _run_db_path_self_test()
