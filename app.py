@@ -957,13 +957,13 @@ data_elo_tab, simulations_tab, team_deep_dive_tab, diagnostics_tab, global_ratin
 with data_elo_tab:
     st.subheader("Upcoming Match Probabilities")
     if probabilities_table:
-        st.dataframe(probabilities_table, use_container_width=True)
+        st.dataframe(probabilities_table, width="stretch")
     else:
         st.info(NO_UPCOMING_MSG)
 
     st.subheader("Completed matches")
     if completed_table:
-        st.dataframe(completed_table, use_container_width=True)
+        st.dataframe(completed_table, width="stretch")
     else:
         st.info(NO_COMPLETED_MSG)
 
@@ -975,7 +975,7 @@ with data_elo_tab:
             ratings_display_df,
             hide_index=True,
             height=ratings_height,
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.info(NO_RATINGS_MSG)
@@ -988,7 +988,7 @@ with data_elo_tab:
             standings_display_df,
             hide_index=True,
             height=standings_height,
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.info(NO_STANDINGS_MSG)
@@ -1104,7 +1104,7 @@ with simulations_tab:
                 padding={"left": 160, "right": 10, "top": 10, "bottom": 40},
             )
         )
-        st.altair_chart(heatmap, use_container_width=True)
+        st.altair_chart(heatmap, width="stretch")
 
         simulation_display_df = simulation_df.copy()
         probability_columns = [col for col in simulation_display_df.columns if col != "team"]
@@ -1120,7 +1120,7 @@ with simulations_tab:
             simulation_display_df,
             hide_index=True,
             height=simulation_height,
-            use_container_width=True,
+            width="stretch",
             column_config=simulation_column_config,
         )
 
@@ -1238,7 +1238,7 @@ with simulations_tab:
                     )
                     .properties(height=max(500, 34 * len(entropy_chart_df)))
                 )
-                st.altair_chart(entropy_chart, use_container_width=True)
+                st.altair_chart(entropy_chart, width="stretch")
 
                 mean_entropy_norm = entropy_df["entropy_norm"].mean()
                 median_entropy_norm = entropy_df["entropy_norm"].median()
@@ -1315,7 +1315,7 @@ with simulations_tab:
                     )
                     .properties(height=420)
                 )
-                st.altair_chart(rank_chart, use_container_width=True)
+                st.altair_chart(rank_chart, width="stretch")
 
                 valid_ranks = set(rank_entropy_df["rank"].astype(int).tolist())
                 top5_ranks = [r for r in range(1, min(5, n_positions) + 1) if r in valid_ranks]
@@ -1364,7 +1364,7 @@ with global_ratings_tab:
             table_df,
             hide_index=True,
             height=800,
-            use_container_width=True,
+            width="stretch",
         )
 
         st.subheader("Elo Distribution by League")
@@ -1440,7 +1440,7 @@ with global_ratings_tab:
                     )
                     .resolve_scale(y="shared", x="independent")
                 )
-                st.altair_chart(distribution_chart, use_container_width=True)
+                st.altair_chart(distribution_chart, width="stretch")
             else:
                 chart_base = (
                     alt.Chart()
@@ -1499,7 +1499,7 @@ with global_ratings_tab:
                     )
                     .resolve_scale(y="shared", x="independent")
                 )
-                st.altair_chart(distribution_chart, use_container_width=True)
+                st.altair_chart(distribution_chart, width="stretch")
 
 with team_deep_dive_tab:
     teams_for_select = sorted(
@@ -1604,7 +1604,7 @@ with team_deep_dive_tab:
                         ],
                     )
                 )
-                st.altair_chart((line + points).properties(height=320), use_container_width=True)
+                st.altair_chart((line + points).properties(height=320), width="stretch")
             else:
                 st.info("No completed matches with valid dates for Elo evolution.")
         else:
@@ -1662,7 +1662,7 @@ with team_deep_dive_tab:
             completed_ppm_text = f"{(completed_points_total / completed_matches_count):.1f}"
         st.subheader(f"Completed Matches (PPM: {completed_ppm_text})")
         if team_completed_rows:
-            st.dataframe(team_completed_rows, use_container_width=True)
+            st.dataframe(team_completed_rows, width="stretch")
         else:
             st.info("No completed matches for selected team.")
 
@@ -1717,7 +1717,7 @@ with team_deep_dive_tab:
             }
             st.dataframe(
                 remaining_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config=remaining_column_config,
             )
@@ -2137,7 +2137,7 @@ with diagnostics_tab:
                     )
                 )
                 chart = (ref_line + cal_error + cal_line + cal_points).resolve_scale(x="shared", y="shared")
-                st.altair_chart(chart.properties(height=280), use_container_width=True)
+                st.altair_chart(chart.properties(height=280), width="stretch")
 
         st.subheader("Calibration by Elo Delta (pregame Elo + home advantage)")
         if skipped_missing_pregame > 0 or skipped_invalid_delta_probs > 0:
@@ -2265,7 +2265,7 @@ with diagnostics_tab:
                             ],
                         )
                     )
-                    st.altair_chart((obs_error + line + points).properties(height=280), use_container_width=True)
+                    st.altair_chart((obs_error + line + points).properties(height=280), width="stretch")
 
         # Matchday performance charts (exclude rows without matchday only for these charts).
         matchday_metric_buckets: dict[int, dict[str, float]] = {}
@@ -2513,7 +2513,7 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                    st.altair_chart((ll_line + ll_points).properties(height=280), use_container_width=True)
+                    st.altair_chart((ll_line + ll_points).properties(height=280), width="stretch")
 
             with md_c2:
                 st.write(bs_uniform_text)
@@ -2563,7 +2563,7 @@ with diagnostics_tab:
                         ],
                     )
                 )
-                    st.altair_chart((bs_line + bs_points).properties(height=280), use_container_width=True)
+                    st.altair_chart((bs_line + bs_points).properties(height=280), width="stretch")
 
 st.divider()
 for line in FOOTER_LINES:
