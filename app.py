@@ -158,6 +158,45 @@ def _get_global_ratings_raw_matches(competition: str, season: int) -> list[dict]
     return get_matches(competition=competition, season=season)
 
 
+def _compute_matches_signature_from_rows(matches_rows: list[dict]) -> str:
+    """Compute signature from a list of raw match dict rows."""
+    return compute_matches_signature(pd.DataFrame(matches_rows))
+
+
+def _should_write_matches_from_rows(
+    fetched_matches_rows: list[dict],
+    db_matches_rows: list[dict],
+) -> tuple[bool, str, str]:
+    """Return write decision plus fetched/db signatures."""
+    fetched_sig = _compute_matches_signature_from_rows(fetched_matches_rows)
+    db_sig = _compute_matches_signature_from_rows(db_matches_rows)
+    return (fetched_sig != db_sig), fetched_sig, db_sig
+
+
+def _refresh_matches_if_changed(competition: str, season: int, fetched_matches: list[dict]) -> None:
+    """Persist fetched matches only when content differs from existing DB rows."""
+    db_matches = _get_global_ratings_raw_matches(competition=competition, season=season)
+    should_write, fetched_sig, db_sig = _should_write_matches_from_rows(fetched_matches, db_matches)
+    debug_enabled = os.getenv("DB_WRITE_DEBUG") == "1"
+    if should_write:
+        if debug_enabled:
+            logger.info(
+                "DB write performed for %s/%s (fetched_sig=%s db_sig=%s)",
+                competition,
+                season,
+                fetched_sig,
+                db_sig,
+            )
+        save_matches(fetched_matches, competition=competition, season=season)
+    elif debug_enabled:
+        logger.info(
+            "DB write skipped for %s/%s (unchanged, sig=%s)",
+            competition,
+            season,
+            fetched_sig,
+        )
+
+
 def _normalize_signature_value(value: object) -> str | None:
     """Normalize values for deterministic signature hashing."""
     if value is None:
@@ -278,6 +317,48 @@ def _run_matches_signature_self_test() -> None:
     )
     sig_alias = compute_matches_signature(df_alias)
     assert sig_a == sig_alias, "Known aliases should produce equivalent signatures"
+
+
+def _run_db_write_skip_self_test() -> None:
+    """Internal sanity check that unchanged content skips DB writes."""
+    fetched_df = pd.DataFrame(
+        [
+            {
+                "match_id": 1,
+                "status": "FINISHED",
+                "utc_date": "2025-08-10T15:00:00Z",
+                "home_team": "A",
+                "away_team": "B",
+                "home_score": 1,
+                "away_score": 0,
+            },
+            {
+                "match_id": 2,
+                "status": "SCHEDULED",
+                "utc_date": "2025-08-11T15:00:00Z",
+                "home_team": "C",
+                "away_team": "D",
+                "home_score": None,
+                "away_score": None,
+            },
+        ]
+    )
+    db_df = (
+        fetched_df.iloc[::-1]
+        .copy()
+        .assign(home_score=lambda d: d["home_score"].astype("float64"))
+        .assign(away_score=lambda d: d["away_score"].astype("float64"))
+    )
+    db_df["non_signature_column"] = ["z", "q"]
+
+    fetched_rows = fetched_df.to_dict(orient="records")
+    db_rows = db_df.to_dict(orient="records")
+    fetched_sig = _compute_matches_signature_from_rows(fetched_rows)
+    db_sig = _compute_matches_signature_from_rows(db_rows)
+    assert fetched_sig == db_sig, "Equivalent content should produce same signature"
+
+    should_write, _, _ = _should_write_matches_from_rows(fetched_rows, db_rows)
+    assert should_write is False, "Unchanged content should skip DB writes"
 
 
 def get_db_freshness_signature(
@@ -720,7 +801,7 @@ season = st.selectbox("Season", options=SEASON_OPTIONS, index=0)
 data_last_updated_display = "Unavailable"
 try:
     fetched_matches, fetched_at_utc = fetch_matches_cached(competition=competition, season=int(season))
-    save_matches(fetched_matches, competition=competition, season=int(season))
+    _refresh_matches_if_changed(competition=competition, season=int(season), fetched_matches=fetched_matches)
     fetched_at_dt = datetime.fromisoformat(fetched_at_utc)
     data_last_updated_display = fetched_at_dt.strftime("%b %d, %Y %H:%M UTC")
 except Exception:
@@ -1536,7 +1617,11 @@ with diagnostics_tab:
         for comp_code in sorted(set(COMPETITION_OPTIONS.values())):
             try:
                 comp_fetched_matches, _ = fetch_matches_cached(competition=comp_code, season=int(season))
-                save_matches(comp_fetched_matches, competition=comp_code, season=int(season))
+                _refresh_matches_if_changed(
+                    competition=comp_code,
+                    season=int(season),
+                    fetched_matches=comp_fetched_matches,
+                )
             except Exception:
                 aggregate_refresh_failures.append(comp_code)
             comp_matches = get_matches(comp_code, int(season))
@@ -2366,3 +2451,5 @@ for line in FOOTER_LINES:
 
 if __name__ == "__main__" and os.getenv("RUN_MATCH_SIGNATURE_SELF_TEST") == "1":
     _run_matches_signature_self_test()
+if __name__ == "__main__" and os.getenv("RUN_DB_WRITE_SKIP_SELF_TEST") == "1":
+    _run_db_write_skip_self_test()
