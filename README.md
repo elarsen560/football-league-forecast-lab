@@ -81,6 +81,16 @@ Use this prompt for focused periodic quality checks:
 Run AGENTS checklist + ENGINEERING_PLAYBOOK.md patterns + scripts/audit.sh; report only high-confidence, low-risk fixes; no refactors.
 ```
 
+## Periodic Agent Note creation
+
+Use this prompt for concise high-value agent-created notes written into Obsidian Vault. If additional emphasis on specific aspects is needed (e.g. code refactors, architecture decisions, modeling logic, etc.) add that to the prompt. Note that session history and compaction can impact ability for the agent to generate successfully execute this task.
+
+```text
+Create a new Agent Note using the strict template located at Templates/Agent Note Template.md. Follow every rule in that template exactly. Always read this template, do not rely on session context history. Time Scope: <specify>
+```
+
+Strict instructions and Obsidian Vault filepath + directory structure is specified in ```Templates/Agent Note Template.md```. Edit this file as needed.
+
 ## Configuration files
 
 ### `starting_elo.csv`
