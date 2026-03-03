@@ -163,6 +163,7 @@ If:
 - No work occurred in that time window
 - The agent lacks context for that time window
 - Context was lost due to compaction
+- No git logs/ diffs are available in that time window
 
 Then produce:
 
@@ -180,10 +181,18 @@ Do not fabricate content.
 
 # CONTEXT RECOVERY RULES (MANDATORY)
 
-If session context is incomplete or compacted, reconstruct context using this priority:
-1. Session context
-2. Git history reconstruction for the explicit Time Scope (`git log` + `git diff` evidence)
-3. If both are insufficient: use the existing "No recorded activity" fallback
+Context reconstruction must follow this priority:
+
+1. Hybrid (session + git) whenever a git repository is available.
+   - Always consult git history within the explicit Time Scope (`git log` + `git diff` evidence),
+     even if session context is available.
+   - Use session context to supplement uncommitted work or reasoning not visible in git.
+
+2. Git history reconstruction only (if session context is unavailable).
+
+3. Session context only (if git repository is unavailable).
+
+4. If evidence is insufficient: use the existing "No recorded activity" fallback.
 
 Source labeling is required:
 - `Session context`
