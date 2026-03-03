@@ -1,9 +1,9 @@
 import csv
 import hashlib
+import logging
 import math
 import os
 import random
-import sqlite3
 from datetime import datetime, timezone
 
 import altair as alt
@@ -13,6 +13,8 @@ import streamlit as st
 from data_client import fetch_matches
 from db import get_matches, init_db, save_matches
 from elo import DEFAULT_ELO, DEFAULT_HOME_ADVANTAGE, compute_elo_ratings, predict_match
+
+logger = logging.getLogger(__name__)
 
 init_db()
 
@@ -134,27 +136,164 @@ def load_home_advantage_config(path: str = "model_config.csv") -> tuple[dict[str
     return _load_home_advantage_config_cached(path, _file_mtime(path))
 
 
+SIGNATURE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    "match_id": ("match_id", "id"),
+    "status": ("status",),
+    "utc_date": ("utc_date", "utcDate"),
+    "home_team": ("home_team", "homeTeam"),
+    "away_team": ("away_team", "awayTeam"),
+    "full_time_home": ("home_score", "full_time_home"),
+    "full_time_away": ("away_score", "full_time_away"),
+}
+SIGNATURE_OPTIONAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "matchday": ("matchday",),
+    "half_time_home": ("half_time_home", "half_time_score_home", "ht_home_score"),
+    "half_time_away": ("half_time_away", "half_time_score_away", "ht_away_score"),
+    "last_updated": ("lastUpdated", "last_updated"),
+}
+
+
+def _get_global_ratings_raw_matches(competition: str, season: int) -> list[dict]:
+    """Single source for Global Ratings raw DB rows."""
+    return get_matches(competition=competition, season=season)
+
+
+def _normalize_signature_value(value: object) -> str | None:
+    """Normalize values for deterministic signature hashing."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).isoformat()
+        return value.isoformat()
+
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if value.is_integer():
+            return str(int(value))
+        return format(value, ".15g")
+
+    return str(value)
+
+
+def compute_matches_signature(matches_df: pd.DataFrame) -> str:
+    """
+    Compute deterministic content signature for a match set.
+
+    The signature uses Elo/diagnostics-relevant fields and is robust to dtype/NaN differences.
+    """
+    if matches_df is None or matches_df.empty:
+        return "empty"
+
+    strict_mode = os.getenv("SIGNATURE_STRICT") == "1"
+    canonical_df = pd.DataFrame(index=matches_df.index)
+
+    missing_required_fields = []
+    for out_col, candidates in SIGNATURE_REQUIRED_FIELDS.items():
+        selected_col = next((col for col in candidates if col in matches_df.columns), None)
+        if selected_col is None:
+            missing_required_fields.append(f"{out_col}<-{candidates}")
+        canonical_df[out_col] = matches_df[selected_col] if selected_col else None
+
+    if missing_required_fields:
+        missing_msg = (
+            "compute_matches_signature missing required fields: "
+            + ", ".join(missing_required_fields)
+        )
+        if strict_mode:
+            raise ValueError(missing_msg)
+        logger.warning(missing_msg)
+
+    for out_col, candidates in SIGNATURE_OPTIONAL_FIELDS.items():
+        selected_col = next((col for col in candidates if col in matches_df.columns), None)
+        canonical_df[out_col] = matches_df[selected_col] if selected_col else None
+
+    sort_cols = (
+        ["match_id"]
+        if canonical_df["match_id"].notna().any()
+        else ["utc_date", "home_team", "away_team", "status"]
+    )
+    canonical_df = canonical_df.sort_values(sort_cols, kind="mergesort")
+
+    rows: list[tuple[str | None, ...]] = []
+    for row in canonical_df.itertuples(index=False, name=None):
+        rows.append(tuple(_normalize_signature_value(v) for v in row))
+
+    digest = hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def _run_matches_signature_self_test() -> None:
+    """Internal sanity check for signature drift detection."""
+    df_a = pd.DataFrame(
+        [
+            {
+                "match_id": 1,
+                "status": "FINISHED",
+                "utc_date": "2025-08-10T15:00:00Z",
+                "home_team": "A",
+                "away_team": "B",
+                "home_score": 1,
+                "away_score": 0,
+            },
+            {
+                "match_id": 2,
+                "status": "FINISHED",
+                "utc_date": "2025-08-11T15:00:00Z",
+                "home_team": "C",
+                "away_team": "D",
+                "home_score": 2,
+                "away_score": 2,
+            },
+        ]
+    )
+    df_a["non_signature_note"] = ["x", "y"]
+    df_b = df_a.copy()
+    df_b.loc[df_b["match_id"] == 2, "home_score"] = 3
+
+    sig_a = compute_matches_signature(df_a)
+    sig_b = compute_matches_signature(df_b)
+    assert sig_a != sig_b, "Expected different signatures when only a score changes"
+
+    df_c = df_a.drop(columns=["non_signature_note"])
+    sig_c = compute_matches_signature(df_c)
+    assert sig_a == sig_c, "Non-signature columns should not affect signature"
+
+    df_alias = df_c.rename(
+        columns={
+            "match_id": "id",
+            "home_score": "full_time_home",
+            "away_score": "full_time_away",
+            "utc_date": "utcDate",
+            "home_team": "homeTeam",
+            "away_team": "awayTeam",
+        }
+    )
+    sig_alias = compute_matches_signature(df_alias)
+    assert sig_a == sig_alias, "Known aliases should produce equivalent signatures"
+
+
 def get_db_freshness_signature(
     season: int,
     competition_codes: tuple[str, ...],
-) -> tuple[tuple[str, int, str | None], ...]:
-    """Return per-competition DB freshness signature for cache invalidation."""
+) -> tuple[tuple[str, str], ...]:
+    """Return per-competition content signatures for cache invalidation."""
     if not competition_codes:
         return tuple()
 
-    placeholders = ",".join(["?"] * len(competition_codes))
-    query = f"""
-        SELECT competition, COUNT(*) AS row_count, MAX(utc_date) AS max_utc_date
-        FROM matches
-        WHERE season = ? AND competition IN ({placeholders})
-        GROUP BY competition
-    """
-    signature_map = {code: (0, None) for code in competition_codes}
-    with sqlite3.connect("soccer.db") as conn:
-        rows = conn.execute(query, (season, *competition_codes)).fetchall()
-    for competition, row_count, max_utc_date in rows:
-        signature_map[competition] = (int(row_count or 0), max_utc_date)
-    return tuple((code, signature_map[code][0], signature_map[code][1]) for code in sorted(competition_codes))
+    signature_map: dict[str, str] = {}
+    for code in competition_codes:
+        matches = _get_global_ratings_raw_matches(competition=code, season=season)
+        matches_df = pd.DataFrame(matches)
+        signature_map[code] = compute_matches_signature(matches_df)
+    return tuple((code, signature_map.get(code, "empty")) for code in sorted(competition_codes))
 
 
 @st.cache_data(show_spinner=False)
@@ -164,7 +303,7 @@ def compute_global_ratings_cached(
     competition_name_items: tuple[tuple[str, str], ...],
     starting_elo_mtime: float | None,
     model_config_mtime: float | None,
-    db_freshness_signature: tuple[tuple[str, int, str | None], ...],
+    db_freshness_signature: tuple[tuple[str, str], ...],
 ) -> list[dict]:
     """Compute global ratings table across all supported competitions from local DB."""
     del starting_elo_mtime, model_config_mtime, db_freshness_signature
@@ -174,7 +313,7 @@ def compute_global_ratings_cached(
     global_rows = []
 
     for competition_code in competition_codes:
-        matches = get_matches(competition=competition_code, season=season)
+        matches = _get_global_ratings_raw_matches(competition=competition_code, season=season)
         if not matches:
             continue
         finished_matches = sorted(
@@ -2224,3 +2363,6 @@ with diagnostics_tab:
 st.divider()
 for line in FOOTER_LINES:
     st.caption(line)
+
+if __name__ == "__main__" and os.getenv("RUN_MATCH_SIGNATURE_SELF_TEST") == "1":
+    _run_matches_signature_self_test()
