@@ -123,10 +123,12 @@ Behavior:
 
 - API fetches use `@st.cache_data(ttl=3600)` by `(competition, season)`.
 - Selected competition is refreshed in normal page flow (hourly cache semantics).
+- DB writes are content-aware: fetched league-season rows are persisted only when fetched vs local DB match-content signatures differ.
 - In Diagnostics with **Aggregate across all leagues** checked:
   - app attempts cached refresh for each supported league,
-  - saves successful responses to DB,
+  - conditionally saves refreshed rows to DB only when content differs,
   - falls back to local DB per league if refresh fails (with warning).
+- Global Ratings cache invalidation uses per-league content signatures from raw DB rows (not just row-count/date freshness), so corrected scores/status updates invalidate cached rankings.
 
 Notes for Streamlit Cloud:
 - Cache and local DB are instance-local, not globally shared across all users/instances.
@@ -148,7 +150,15 @@ Notes for Streamlit Cloud:
 - `away_score INTEGER`
 
 Storage/update pattern:
-- `save_matches(...)` currently does `DELETE` by `(competition, season)` then `INSERT OR REPLACE` for fetched rows.
+- `save_matches(...)` does `DELETE` by `(competition, season)` then `INSERT OR REPLACE` for fetched rows.
+- App refresh flow calls `save_matches(...)` only when fetched and local DB signatures differ.
+
+Indexes:
+- `idx_matches_comp_season` on `(competition, season)`
+- `idx_matches_comp_season_date` on `(competition, season, utc_date)`
+
+Operational hardening:
+- SQLite connections use connect timeout and `PRAGMA busy_timeout` to reduce transient lock failures under concurrent reruns.
 
 ## Modeling summary
 
@@ -224,9 +234,7 @@ For selected team:
 
 ## Future improvements
 
-- **Reduce unnecessary DB writes on cached fetches**:
-  skip `save_matches(...)` when fetch result is from unchanged cache to reduce write churn.
 - Persist per-league refresh metadata in DB and refresh only stale leagues explicitly.
 - Add optional simulation mode with in-simulation Elo updates.
 - Add tests for data loading, Elo math, and diagnostics aggregations.
-- Improve observability around per-league refresh status and cache hits.
+- Expand observability around per-league refresh status, cache hits, and write-skip/write-performed counts.
