@@ -24,7 +24,7 @@ Agent Notes/
 
 ## FILE NAME CONVENTION (REQUIRED)
 
-YYYY-MM-DD HHMM AGENT `<current-directory-name>`
+YYYY-MM-DD HHMM AGENT <current-directory-name>
 
 - Use 24-hour time, military format, no colon (not permitted in note names)
 - `<current-directory-name>` must be the final directory name only (not full path).
@@ -52,7 +52,8 @@ The agent must:
 
 # OUTPUT STRUCTURE (MANDATORY)
 
-# Agent Log – `<YYYY-MM-DD HH:MM>`
+# Agent Log – <YYYY-MM-DD HH:MM>
+**Source:** <Session context | Git history reconstruction (log/diff) | Hybrid (session + git)>
 
 ## Project
 <current-directory-name>
@@ -63,6 +64,9 @@ Examples:
 - “Work completed today”
 - “Work completed yesterday”
 - “Work completed between 2026-03-05 and 2026-03-15”
+
+If Source includes git reconstruction, constrain git queries to this explicit Time Scope (`--since/--until` equivalent).
+Use local timezone interpretation unless explicitly specified otherwise in the prompt.
 
 ## Summary
 Concise, high-signal description of meaningful work.
@@ -171,6 +175,27 @@ And optionally:
 Briefly state that no relevant activity is available in current session memory.
 
 Do not fabricate content.
+
+---
+
+# CONTEXT RECOVERY RULES (MANDATORY)
+
+If session context is incomplete or compacted, reconstruct context using this priority:
+1. Session context
+2. Git history reconstruction for the explicit Time Scope (`git log` + `git diff` evidence)
+3. If both are insufficient: use the existing "No recorded activity" fallback
+
+Source labeling is required:
+- `Session context`
+- `Git history reconstruction (log/diff)`
+- `Hybrid (session + git)`
+
+When using git reconstruction, restrict evidence to commits that touch files under `<current-directory-name>` (path-scoped), and ignore pure formatting/lockfile churn unless it was the main work.
+
+Optional (recommended) when git-only reconstruction is used:
+
+## Confidence Note
+Derived from commits/diffs in scope; uncommitted local edits may be missing.
 
 ---
 
