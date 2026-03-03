@@ -52,7 +52,7 @@ The agent must:
 
 # OUTPUT STRUCTURE (MANDATORY)
 
-# Agent Log – <YYYY-MM-DD HH:MM>
+# Agent Log – `<YYYY-MM-DD HH:MM>`
 
 ## Project
 <current-directory-name>
