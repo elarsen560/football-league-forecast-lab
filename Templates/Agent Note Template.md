@@ -24,7 +24,7 @@ Agent Notes/
 
 ## FILE NAME CONVENTION (REQUIRED)
 
-YYYY-MM-DD HHMM AGENT <current-directory-name>
+YYYY-MM-DD HHMM AGENT `<current-directory-name>`
 
 - Use 24-hour time, military format, no colon (not permitted in note names)
 - `<current-directory-name>` must be the final directory name only (not full path).
