@@ -5,7 +5,8 @@ DB_PATH = "soccer.db"
 
 
 def init_db() -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS matches (
@@ -37,7 +38,8 @@ def init_db() -> None:
 
 
 def save_matches(matches: list[dict[str, Any]], competition: str, season: int) -> None:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute(
             "DELETE FROM matches WHERE competition = ? AND season = ?",
             (competition, season),
@@ -77,7 +79,8 @@ def save_matches(matches: list[dict[str, Any]], competition: str, season: int) -
 
 
 def get_matches(competition: str, season: int) -> list[dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.execute("PRAGMA busy_timeout = 10000")
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
@@ -104,7 +107,8 @@ def get_matches(competition: str, season: int) -> list[dict[str, Any]]:
 
 def get_team_matches(competition: str, season: int, team_name: str) -> list[dict[str, Any]]:
     """Return matches for a single team (home or away) within competition and season."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.execute("PRAGMA busy_timeout = 10000")
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """

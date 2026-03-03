@@ -230,9 +230,10 @@ def _normalize_signature_value(value: object) -> str | None:
         if pd.isna(value):
             return None
     except Exception:
-        logger.exception(
+        logger.warning(
             "Signature normalization failed while evaluating pd.isna; value_type=%s",
             type(value).__name__,
+            exc_info=False,
         )
         pass
 
