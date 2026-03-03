@@ -22,6 +22,18 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_matches_comp_season
+            ON matches (competition, season)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_matches_comp_season_date
+            ON matches (competition, season, utc_date)
+            """
+        )
 
 
 def save_matches(matches: list[dict[str, Any]], competition: str, season: int) -> None:
