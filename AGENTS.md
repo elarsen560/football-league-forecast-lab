@@ -60,3 +60,15 @@ After edits:
 - Be concise and technical.
 - Report mismatches/errors directly.
 - If a request may have side effects beyond scope, state it before editing.
+
+## 10) Agent Audit Checklist
+Use this only for periodic quality sweeps or when explicitly requested.
+
+- Cache correctness: any derived/cache-heavy path keyed by freshness proxies instead of content signature?
+- Write churn: any unconditional `save_matches(...)`/DB refresh writes that should be content-gated?
+- Error visibility: any broad `except Exception` fallback without contextual logging?
+- SQLite resilience: any new `sqlite3.connect(...)` call missing timeout/busy-timeout handling?
+- Config cache invalidation: any file-backed loaders missing mtime-aware cache keys?
+- Path consistency: any duplicated DB path literals instead of shared `DB_PATH`?
+- Deprecation hygiene: any reintroduced `use_container_width` usages?
+- Scope guard: propose only high-confidence, low-risk fixes; no architecture refactor in audit mode.

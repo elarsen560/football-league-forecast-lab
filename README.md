@@ -73,6 +73,14 @@ For Streamlit Cloud, set `FOOTBALL_DATA_API_KEY` in app secrets/environment.
 streamlit run app.py
 ```
 
+## Periodic Agent Audits
+
+Use this prompt for focused periodic quality checks:
+
+```text
+Run AGENTS checklist + scripts/audit.sh; report only high-confidence, low-risk fixes; no refactors.
+```
+
 ## Configuration files
 
 ### `starting_elo.csv`
