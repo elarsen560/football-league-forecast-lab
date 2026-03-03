@@ -78,7 +78,7 @@ streamlit run app.py
 Use this prompt for focused periodic quality checks:
 
 ```text
-Run AGENTS checklist + scripts/audit.sh; report only high-confidence, low-risk fixes; no refactors.
+Run AGENTS checklist + ENGINEERING_PLAYBOOK.md patterns + scripts/audit.sh; report only high-confidence, low-risk fixes; no refactors.
 ```
 
 ## Configuration files
