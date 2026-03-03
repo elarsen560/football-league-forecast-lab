@@ -152,6 +152,7 @@ def _load_home_advantage_config_cached(path: str, mtime: float | None) -> tuple[
     except FileNotFoundError:
         return {}, MISSING_MODEL_CONFIG_MSG
     except Exception:
+        logger.exception("Failed to parse home advantage config CSV: path=%s", path)
         return {}, INVALID_MODEL_CONFIG_MSG
 
 
@@ -229,6 +230,10 @@ def _normalize_signature_value(value: object) -> str | None:
         if pd.isna(value):
             return None
     except Exception:
+        logger.exception(
+            "Signature normalization failed while evaluating pd.isna; value_type=%s",
+            type(value).__name__,
+        )
         pass
 
     if isinstance(value, datetime):
@@ -547,6 +552,11 @@ def load_starting_ratings_csv(
     except FileNotFoundError:
         return {}, MISSING_STARTING_ELO_MSG
     except Exception:
+        logger.exception(
+            "Failed to parse starting ratings CSV: path=%s competition=%s",
+            path,
+            competition,
+        )
         return {}, INVALID_STARTING_ELO_MSG
 
 
@@ -594,6 +604,36 @@ def _run_db_path_self_test() -> None:
     print(f"app_db_path={app_db_abs}")
     print(f"db_db_path={db_db_abs}")
     assert app_db_abs == db_db_abs, "App DB path must match db.DB_PATH"
+
+
+def _run_exception_logging_self_test() -> None:
+    """Internal check that representative fallback path logs exception and does not raise."""
+    records: list[logging.LogRecord] = []
+
+    class _MemoryHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _MemoryHandler()
+    previous_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.ERROR)
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bad_csv_path = os.path.join(tmp_dir, "starting_elo_bad.csv")
+            with open(bad_csv_path, "w", encoding="utf-8", newline="") as f:
+                f.write("competition,team,rating\nPL,Team A,not-a-number\n")
+
+            ratings, info = load_starting_ratings_csv(competition="PL", path=bad_csv_path)
+            assert ratings == {}, "Fallback should return empty ratings on parse failure"
+            assert info == INVALID_STARTING_ELO_MSG, "Fallback info message should remain unchanged"
+            assert any(
+                "Failed to parse starting ratings CSV" in record.getMessage()
+                for record in records
+            ), "Expected exception log message not found"
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 def split_matches_by_status(stored_matches: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -875,6 +915,11 @@ try:
     fetched_at_dt = datetime.fromisoformat(fetched_at_utc)
     data_last_updated_display = fetched_at_dt.strftime("%b %d, %Y %H:%M UTC")
 except Exception:
+    logger.exception(
+        "Failed to refresh selected competition data; competition=%s season=%s",
+        competition,
+        int(season),
+    )
     st.warning("Failed to refresh API data. Showing most recent local data if available; it may be stale.")
     data_last_updated_display = "Unavailable (using local DB fallback)"
 
@@ -1693,6 +1738,11 @@ with diagnostics_tab:
                     fetched_matches=comp_fetched_matches,
                 )
             except Exception:
+                logger.exception(
+                    "Failed to refresh aggregate diagnostics league data; competition=%s season=%s",
+                    comp_code,
+                    int(season),
+                )
                 aggregate_refresh_failures.append(comp_code)
             comp_matches = get_matches(comp_code, int(season))
             comp_starting_ratings, _ = load_starting_ratings_csv(competition=comp_code)
@@ -2527,3 +2577,5 @@ if __name__ == "__main__" and os.getenv("RUN_CSV_CACHE_SELF_TEST") == "1":
     _run_csv_cache_self_test()
 if __name__ == "__main__" and os.getenv("RUN_DB_PATH_SELF_TEST") == "1":
     _run_db_path_self_test()
+if __name__ == "__main__" and os.getenv("RUN_EXCEPTION_LOG_SELF_TEST") == "1":
+    _run_exception_logging_self_test()
