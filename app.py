@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import random
+import tempfile
 from datetime import datetime, timezone
 
 import altair as alt
@@ -15,6 +16,8 @@ from db import get_matches, init_db, save_matches
 from elo import DEFAULT_ELO, DEFAULT_HOME_ADVANTAGE, compute_elo_ratings, predict_match
 
 logger = logging.getLogger(__name__)
+
+_CSV_LOADER_TEST_COUNTS = {"starting_elo": 0, "model_config": 0}
 
 init_db()
 
@@ -100,30 +103,50 @@ def _file_mtime(path: str) -> float | None:
 
 
 @st.cache_data(show_spinner=False)
-def _load_home_advantage_config_cached(path: str, mtime: float | None) -> tuple[dict[str, float], str | None]:
+def _load_starting_elo_csv_cached(path: str, mtime: float | None) -> list[dict[str, str]]:
     del mtime
+    if os.getenv("RUN_CSV_CACHE_SELF_TEST") == "1":
+        _CSV_LOADER_TEST_COUNTS["starting_elo"] += 1
+    with open(path, newline="", encoding="utf-8-sig") as csvfile:
+        reader = csv.DictReader(csvfile)
+        return [dict(row) for row in reader]
+
+
+@st.cache_data(show_spinner=False)
+def _load_model_config_csv_cached(
+    path: str, mtime: float | None
+) -> tuple[list[str] | None, list[dict[str, str]]]:
+    del mtime
+    if os.getenv("RUN_CSV_CACHE_SELF_TEST") == "1":
+        _CSV_LOADER_TEST_COUNTS["model_config"] += 1
+    with open(path, newline="", encoding="utf-8-sig") as csvfile:
+        reader = csv.DictReader(csvfile)
+        return reader.fieldnames, [dict(row) for row in reader]
+
+
+@st.cache_data(show_spinner=False)
+def _load_home_advantage_config_cached(path: str, mtime: float | None) -> tuple[dict[str, float], str | None]:
     ha_map: dict[str, float] = {}
     try:
-        with open(path, newline="", encoding="utf-8-sig") as csvfile:
-            reader = csv.DictReader(csvfile)
-            if reader.fieldnames is None:
-                raise ValueError("model_config.csv is empty")
-            required_columns = {"competition", "home_advantage"}
-            if not required_columns.issubset(set(reader.fieldnames)):
-                raise ValueError("model_config.csv must include competition and home_advantage columns")
-            for row in reader:
-                competition = (row.get("competition") or "").strip()
-                home_advantage_raw = (row.get("home_advantage") or "").strip()
-                if competition == "" and home_advantage_raw == "":
-                    continue
-                if competition == "" or home_advantage_raw == "":
-                    raise ValueError("model_config.csv contains incomplete rows")
-                if competition in ha_map:
-                    raise ValueError("model_config.csv contains duplicate competition values")
-                ha_value = float(home_advantage_raw)
-                if ha_value < 0.0:
-                    raise ValueError("home_advantage must be non-negative")
-                ha_map[competition] = ha_value
+        fieldnames, rows = _load_model_config_csv_cached(path, mtime)
+        if fieldnames is None:
+            raise ValueError("model_config.csv is empty")
+        required_columns = {"competition", "home_advantage"}
+        if not required_columns.issubset(set(fieldnames)):
+            raise ValueError("model_config.csv must include competition and home_advantage columns")
+        for row in rows:
+            competition = (row.get("competition") or "").strip()
+            home_advantage_raw = (row.get("home_advantage") or "").strip()
+            if competition == "" and home_advantage_raw == "":
+                continue
+            if competition == "" or home_advantage_raw == "":
+                raise ValueError("model_config.csv contains incomplete rows")
+            if competition in ha_map:
+                raise ValueError("model_config.csv contains duplicate competition values")
+            ha_value = float(home_advantage_raw)
+            if ha_value < 0.0:
+                raise ValueError("home_advantage must be non-negative")
+            ha_map[competition] = ha_value
         return ha_map, None
     except FileNotFoundError:
         return {}, MISSING_MODEL_CONFIG_MSG
@@ -507,23 +530,60 @@ def load_starting_ratings_csv(
 ) -> tuple[dict[str, float], str | None]:
     """Load competition-filtered seed Elo ratings from CSV."""
     starting_ratings: dict[str, float] = {}
+    mtime = _file_mtime(path)
     try:
-        with open(path, newline="", encoding="utf-8-sig") as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                row_competition = row.get("competition")
-                team = row.get("team")
-                rating = row.get("rating")
-                if row_competition is None or team is None or rating is None:
-                    raise ValueError("CSV must include competition, team and rating columns")
-                if row_competition != competition:
-                    continue
-                starting_ratings[team] = float(rating)
+        rows = _load_starting_elo_csv_cached(path, mtime)
+        for row in rows:
+            row_competition = row.get("competition")
+            team = row.get("team")
+            rating = row.get("rating")
+            if row_competition is None or team is None or rating is None:
+                raise ValueError("CSV must include competition, team and rating columns")
+            if row_competition != competition:
+                continue
+            starting_ratings[team] = float(rating)
         return starting_ratings, None
     except FileNotFoundError:
         return {}, MISSING_STARTING_ELO_MSG
     except Exception:
         return {}, INVALID_STARTING_ELO_MSG
+
+
+def _run_csv_cache_self_test() -> None:
+    """Internal sanity check for CSV loader cache behavior and mtime invalidation."""
+    _load_starting_elo_csv_cached.clear()
+    _load_model_config_csv_cached.clear()
+    _CSV_LOADER_TEST_COUNTS["starting_elo"] = 0
+    _CSV_LOADER_TEST_COUNTS["model_config"] = 0
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        starting_path = os.path.join(tmp_dir, "starting_elo.csv")
+        model_path = os.path.join(tmp_dir, "model_config.csv")
+
+        with open(starting_path, "w", encoding="utf-8", newline="") as f:
+            f.write("competition,team,rating\nPL,Team A,1800\n")
+        with open(model_path, "w", encoding="utf-8", newline="") as f:
+            f.write("competition,home_advantage\nPL,35\n")
+
+        starting_mtime = _file_mtime(starting_path)
+        model_mtime = _file_mtime(model_path)
+
+        os.environ["RUN_CSV_CACHE_SELF_TEST"] = "1"
+        try:
+            _load_starting_elo_csv_cached(starting_path, starting_mtime)
+            _load_starting_elo_csv_cached(starting_path, starting_mtime)
+            assert _CSV_LOADER_TEST_COUNTS["starting_elo"] == 1, "starting_elo loader should be cached"
+
+            _load_model_config_csv_cached(model_path, model_mtime)
+            _load_model_config_csv_cached(model_path, model_mtime)
+            assert _CSV_LOADER_TEST_COUNTS["model_config"] == 1, "model_config loader should be cached"
+
+            _load_starting_elo_csv_cached(starting_path, (starting_mtime or 0.0) + 1.0)
+            _load_model_config_csv_cached(model_path, (model_mtime or 0.0) + 1.0)
+            assert _CSV_LOADER_TEST_COUNTS["starting_elo"] == 2, "starting_elo cache should invalidate on mtime change"
+            assert _CSV_LOADER_TEST_COUNTS["model_config"] == 2, "model_config cache should invalidate on mtime change"
+        finally:
+            os.environ.pop("RUN_CSV_CACHE_SELF_TEST", None)
 
 
 def split_matches_by_status(stored_matches: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
@@ -2453,3 +2513,5 @@ if __name__ == "__main__" and os.getenv("RUN_MATCH_SIGNATURE_SELF_TEST") == "1":
     _run_matches_signature_self_test()
 if __name__ == "__main__" and os.getenv("RUN_DB_WRITE_SKIP_SELF_TEST") == "1":
     _run_db_write_skip_self_test()
+if __name__ == "__main__" and os.getenv("RUN_CSV_CACHE_SELF_TEST") == "1":
+    _run_csv_cache_self_test()
