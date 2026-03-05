@@ -1043,10 +1043,17 @@ with simulations_tab:
             teams,
             key=lambda team: (-starting_ratings.get(team, DEFAULT_ELO), team),
         )
+        standings_order = [
+            row["team"] for row in current_standings
+            if row.get("team") in teams_set
+        ]
+        teams_for_simulation_table = standings_order + sorted(
+            [team for team in teams if team not in set(standings_order)]
+        )
         position_labels = [str(i) for i in range(1, len(teams) + 1)]
 
         simulation_rows = []
-        for team in teams_sorted_for_output:
+        for team in teams_for_simulation_table:
             row = {"team": team}
             for idx, label in enumerate(position_labels):
                 row[label] = round((position_counts[team][idx] * 100.0) / int(num_simulations), 1)
@@ -1054,58 +1061,6 @@ with simulations_tab:
 
         simulation_df = pd.DataFrame(simulation_rows)
         st.session_state["simulation_position_matrix"] = simulation_df.copy()
-        heatmap_df = simulation_df.melt(
-            id_vars="team",
-            var_name="position",
-            value_name="percentage",
-        )
-        heatmap_df["position_num"] = heatmap_df["position"].astype(int)
-        n_teams = len(teams_sorted_for_output)
-
-        heatmap = (
-            alt.Chart(heatmap_df)
-            .mark_rect(stroke="#d9d9d9", strokeWidth=0.6, opacity=1.0)
-            .encode(
-                x=alt.X(
-                    "position_num:O",
-                    title="Position",
-                    sort=list(range(1, n_teams + 1)),
-                    axis=alt.Axis(values=list(range(1, n_teams + 1))),
-                ),
-                y=alt.Y(
-                    "team:N",
-                    sort=teams_sorted_for_output,
-                    title="Team",
-                    axis=alt.Axis(
-                        labelLimit=2000,
-                        labelOverlap=False,
-                        labelAngle=0,
-                        labelFontSize=11,
-                    ),
-                ),
-                color=alt.condition(
-                    alt.datum.percentage <= 0,
-                    alt.value("#ffffff"),
-                    alt.Color(
-                        "percentage:Q",
-                        title="Probability (%)",
-                        scale=alt.Scale(domain=[0, 50], clamp=True, range=["#ffffff", "#08306b"]),
-                        legend=None,
-                    ),
-                ),
-                tooltip=[
-                    alt.Tooltip("team:N", title="Team"),
-                    alt.Tooltip("position_num:O", title="Position"),
-                    alt.Tooltip("percentage:Q", title="Probability (%)", format=".1f"),
-                ],
-            )
-            .properties(
-                width=900,
-                height=max(500, 36 * n_teams),
-                padding={"left": 160, "right": 10, "top": 10, "bottom": 40},
-            )
-        )
-        st.altair_chart(heatmap, width="stretch")
 
         simulation_display_df = simulation_df.copy()
         probability_columns = [col for col in simulation_display_df.columns if col != "team"]
@@ -1117,8 +1072,28 @@ with simulations_tab:
             for col in probability_columns
             if col in simulation_display_df.columns
         }
+
+        def simulation_prob_text_color(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            ratio = max(0.0, min(1.0, float(value) / 50.0))
+            # Low probabilities: muted gray text; high probabilities: bright green text.
+            r = int(145 + (0 - 145) * ratio)
+            g = int(150 + (200 - 150) * ratio)
+            b = int(156 + (83 - 156) * ratio)
+            style = f"color: rgb({r}, {g}, {b})"
+            if float(value) > 5.0:
+                bg_ratio = max(0.0, min(1.0, (float(value) - 5.0) / 45.0))
+                alpha = 0.10 + (0.20 * bg_ratio)
+                style += f"; font-weight: 700; background-color: rgba(76, 175, 80, {alpha:.3f})"
+            return style
+
+        simulation_styler = simulation_display_df.style.applymap(
+            simulation_prob_text_color,
+            subset=probability_columns,
+        )
         st.dataframe(
-            simulation_display_df,
+            simulation_styler,
             hide_index=True,
             height=simulation_height,
             width="stretch",
@@ -2225,7 +2200,15 @@ with diagnostics_tab:
                         .encode(
                             x=alt.X("bin_label:N", title="Elo delta bin", sort=bin_order_labels),
                             y=alt.Y("value:Q", title="Probability", scale=alt.Scale(domain=[0.0, 1.0])),
-                            color=alt.Color("series_name:N", title="Series"),
+                            color=alt.Color(
+                                "series_name:N",
+                                title="Series",
+                                scale=alt.Scale(
+                                    domain=["Predicted", "Observed"],
+                                    range=["#8ecae6", "#4caf50"],
+                                ),
+                                sort=["Predicted", "Observed"],
+                            ),
                             detail="series_name:N",
                             tooltip=[
                                 alt.Tooltip("bin_label:N", title="Bin"),
@@ -2241,7 +2224,15 @@ with diagnostics_tab:
                         .encode(
                             x=alt.X("bin_label:N", sort=bin_order_labels),
                             y=alt.Y("value:Q", scale=alt.Scale(domain=[0.0, 1.0])),
-                            color=alt.Color("series_name:N", title="Series"),
+                            color=alt.Color(
+                                "series_name:N",
+                                title="Series",
+                                scale=alt.Scale(
+                                    domain=["Predicted", "Observed"],
+                                    range=["#8ecae6", "#4caf50"],
+                                ),
+                                sort=["Predicted", "Observed"],
+                            ),
                             tooltip=[
                                 alt.Tooltip("bin_label:N", title="Bin"),
                                 alt.Tooltip("series_name:N", title="Series"),
@@ -2465,7 +2456,8 @@ with diagnostics_tab:
 
             md_c1, md_c2 = st.columns(2)
             series_domain = ["Uniform", "Prevalence", "Model", "Expected"]
-            series_colors = ["#808080", "#8ecae6", "#d62728", "#1d3557"]
+            expected_color = "#4caf50"
+            series_colors = ["#808080", "#8ecae6", "#d62728", expected_color]
             with md_c1:
                 st.write(ll_uniform_text)
                 st.write(ll_prev_text)
