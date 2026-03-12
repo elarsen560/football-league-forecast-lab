@@ -951,8 +951,8 @@ completed_matches = season_context["completed_matches"]
 upcoming_matches = season_context["upcoming_matches"]
 pregame_ratings = season_context["pregame_ratings"]
 
-data_elo_tab, simulations_tab, team_deep_dive_tab, diagnostics_tab, global_ratings_tab = st.tabs(
-    ["Data & Elo", "Simulations", "Team Deep Dive", "Diagnostics", "Global Ratings"]
+data_elo_tab, simulations_tab, team_deep_dive_tab, fantasy_tab, diagnostics_tab, global_ratings_tab = st.tabs(
+    ["Data & Elo", "Simulations", "Team Deep Dive", "Fantasy", "Diagnostics", "Global Ratings"]
 )
 
 with data_elo_tab:
@@ -1699,6 +1699,137 @@ with team_deep_dive_tab:
             )
         else:
             st.info("No remaining fixtures for selected team.")
+
+with fantasy_tab:
+    st.subheader("Fantasy Matchup")
+    st.caption("Select any two teams across supported leagues and choose venue context.")
+
+    all_competition_codes = tuple(dict.fromkeys(COMPETITION_OPTIONS.values()))
+    db_signature = get_db_freshness_signature(
+        season=int(season),
+        competition_codes=all_competition_codes,
+    )
+    global_ratings_rows = compute_global_ratings_cached(
+        season=int(season),
+        competition_codes=all_competition_codes,
+        competition_name_items=tuple(COMPETITION_NAME_BY_CODE.items()),
+        starting_elo_mtime=_file_mtime("starting_elo.csv"),
+        model_config_mtime=_file_mtime("model_config.csv"),
+        db_freshness_signature=db_signature,
+    )
+
+    if not global_ratings_rows:
+        st.info("No global ratings available for the selected season.")
+    else:
+        competition_code_by_name = {
+            comp_name: comp_code for comp_code, comp_name in COMPETITION_NAME_BY_CODE.items()
+        }
+        team_entries = []
+        fantasy_ratings: dict[tuple[str, str], float] = {}
+        for row in global_ratings_rows:
+            team_name = row.get("team_name")
+            competition_name = row.get("competition_name")
+            elo_value = row.get("elo_raw")
+            if not team_name or not competition_name or elo_value is None:
+                continue
+            team_key = (str(team_name), str(competition_name))
+            team_entries.append(team_key)
+            fantasy_ratings[team_key] = float(elo_value)
+
+        team_entries = sorted(set(team_entries), key=lambda item: item[0])
+        if not team_entries:
+            st.info("No teams available for fantasy matchup.")
+        else:
+            league_options = sorted(set(item[1] for item in team_entries))
+            c1, c2, c3, c4, c5 = st.columns(5)
+
+            home_league = c1.selectbox(
+                "Home League",
+                options=league_options,
+                index=0,
+                key="fantasy_home_league",
+            )
+            home_team_options = [item for item in team_entries if item[1] == home_league]
+            home_team_key = c2.selectbox(
+                "Home Team",
+                options=home_team_options,
+                index=0,
+                format_func=lambda item: item[0],
+                key="fantasy_home_team",
+            )
+
+            away_league = c3.selectbox(
+                "Away League",
+                options=league_options,
+                index=0,
+                key="fantasy_away_league",
+            )
+            away_team_pool = [item for item in team_entries if item[1] == away_league]
+            away_team_options = [item for item in away_team_pool if item != home_team_key]
+            if away_team_options:
+                away_team_key = c4.selectbox(
+                    "Away Team",
+                    options=away_team_options,
+                    index=0,
+                    format_func=lambda item: item[0],
+                    key="fantasy_away_team",
+                )
+            else:
+                away_team_key = home_team_key
+                c4.info("No valid away team for this league.")
+            venue = c5.radio(
+                "Venue",
+                options=["Home team venue", "Neutral"],
+                index=0,
+                key="fantasy_venue",
+            )
+
+            if home_team_key == away_team_key:
+                st.warning("Select two different teams.")
+            else:
+                home_team_name, home_competition_name = home_team_key
+                away_team_name, away_competition_name = away_team_key
+                home_competition_code = competition_code_by_name.get(home_competition_name)
+                home_league_ha = ha_map.get(home_competition_code, DEFAULT_HOME_ADVANTAGE)
+                ha_used = home_league_ha if venue == "Home team venue" else 0.0
+
+                p_home, p_draw, p_away = predict_match(
+                    home_team_key,
+                    away_team_key,
+                    fantasy_ratings,
+                    home_advantage=ha_used,
+                )
+                home_elo = fantasy_ratings.get(home_team_key, DEFAULT_ELO)
+                away_elo = fantasy_ratings.get(away_team_key, DEFAULT_ELO)
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Home Win %", f"{p_home * 100:.1f}%")
+                m2.metric("Draw %", f"{p_draw * 100:.1f}%")
+                m3.metric("Home Loss %", f"{p_away * 100:.1f}%")
+
+                st.caption(
+                    f"Home Elo: {round(home_elo)} | Away Elo: {round(away_elo)} | "
+                    f"Applied HA: {ha_used:g} (home league: {home_competition_name})"
+                )
+                st.dataframe(
+                    [
+                        {
+                            "home_team": home_team_name,
+                            "home_league": home_competition_name,
+                            "away_team": away_team_name,
+                            "away_league": away_competition_name,
+                            "venue": venue,
+                            "home_elo": round(home_elo),
+                            "away_elo": round(away_elo),
+                            "ha_used": round(ha_used, 2),
+                            "p_home_win": round(p_home * 100, 1),
+                            "p_draw": round(p_draw * 100, 1),
+                            "p_home_loss": round(p_away * 100, 1),
+                        }
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
 
 with diagnostics_tab:
     aggregate_all_leagues = st.checkbox("Aggregate across all leagues", value=False)
