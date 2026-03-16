@@ -862,20 +862,55 @@ def compute_season_context(
         )
 
     elo_change_values = {team: rating - starting_ratings.get(team, DEFAULT_ELO) for team, rating in ratings.items()}
-    elo_change_rank = {
-        team: rank
-        for rank, (team, _) in enumerate(
-            sorted(elo_change_values.items(), key=lambda item: item[1], reverse=True),
-            start=1,
-        )
-    }
+    team_finished_matches: dict[str, list[dict]] = {}
+    for match in finished_matches:
+        home_team = match.get("home_team")
+        away_team = match.get("away_team")
+        if home_team:
+            team_finished_matches.setdefault(home_team, []).append(match)
+        if away_team:
+            team_finished_matches.setdefault(away_team, []).append(match)
+
+    def rolling_elo_change(team: str, last_n_games: int) -> float:
+        team_matches = team_finished_matches.get(team, [])
+        if not team_matches:
+            return 0.0
+        relevant_matches = team_matches[-last_n_games:]
+        first_match = relevant_matches[0]
+        first_match_id = first_match.get("match_id")
+        first_pregame = pregame_ratings.get(first_match_id, {})
+        if first_match.get("home_team") == team:
+            start_elo = first_pregame.get("pregame_home_elo", starting_ratings.get(team, DEFAULT_ELO))
+        else:
+            start_elo = first_pregame.get("pregame_away_elo", starting_ratings.get(team, DEFAULT_ELO))
+        return ratings.get(team, DEFAULT_ELO) - start_elo
+
+    team_season_extrema: dict[str, tuple[float, float]] = {}
+    for team in ratings:
+        starting_elo = starting_ratings.get(team, DEFAULT_ELO)
+        season_values = [starting_elo]
+        for match in team_finished_matches.get(team, []):
+            match_id = match.get("match_id")
+            prepost = pregame_ratings.get(match_id, {})
+            if match.get("home_team") == team:
+                pregame_elo = prepost.get("pregame_home_elo", starting_elo)
+                postgame_elo = prepost.get("postgame_home_elo", pregame_elo)
+            else:
+                pregame_elo = prepost.get("pregame_away_elo", starting_elo)
+                postgame_elo = prepost.get("postgame_away_elo", pregame_elo)
+            season_values.extend([pregame_elo, postgame_elo])
+        team_season_extrema[team] = (max(season_values), min(season_values))
+
     ratings_table = [
         {
             "elo_rank": rank,
             "team": team,
             "rating": round(rating),
-            "elo_change": round(elo_change_values[team]),
-            "elo_change_rank": int(elo_change_rank[team]),
+            "elo_change_season": round(elo_change_values[team]),
+            "elo_change_10games": round(rolling_elo_change(team, 10)),
+            "elo_change_5games": round(rolling_elo_change(team, 5)),
+            "season_high": round(team_season_extrema.get(team, (starting_ratings.get(team, DEFAULT_ELO), starting_ratings.get(team, DEFAULT_ELO)))[0]),
+            "season_low": round(team_season_extrema.get(team, (starting_ratings.get(team, DEFAULT_ELO), starting_ratings.get(team, DEFAULT_ELO)))[1]),
         }
         for rank, (team, rating) in enumerate(
             sorted(ratings.items(), key=lambda item: item[1], reverse=True),
