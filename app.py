@@ -1123,7 +1123,7 @@ with simulations_tab:
                 style += f"; font-weight: 700; background-color: rgba(76, 175, 80, {alpha:.3f})"
             return style
 
-        simulation_styler = simulation_display_df.style.applymap(
+        simulation_styler = simulation_display_df.style.map(
             simulation_prob_text_color,
             subset=probability_columns,
         )
