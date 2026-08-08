@@ -1,157 +1,313 @@
-﻿competition,team,rating
-DED,PSV,2093
-DED,Feyenoord Rotterdam,2028
-DED,AFC Ajax,1937
-DED,AZ,1917
-DED,FC Twente '65,1838
-DED,FC Utrecht,1825
-DED,Go Ahead Eagles,1763
-DED,NEC,1741
-DED,Sparta Rotterdam,1715
-DED,PEC Zwolle,1691
-DED,FC Groningen,1659
-DED,SC Heerenveen,1668
-DED,Fortuna Sittard,1630
-DED,Heracles Almelo,1660
-DED,SBV Excelsior,1573
-DED,Telstar 1963,1486
-DED,FC Volendam,1538
-DED,NAC Breda,1530
-PL,Arsenal FC,2270
-PL,Manchester City FC,2243
-PL,Aston Villa FC,2167
-PL,Chelsea FC,2184
-PL,Manchester United FC,2154
-PL,Brentford FC,2038
-PL,Liverpool FC,2273
-PL,AFC Bournemouth,2054
-PL,Everton FC,2027
-PL,Newcastle United FC,2154
-PL,Sunderland AFC,1735
-PL,Brighton & Hove Albion FC,2112
-PL,Leeds United FC,1935
-PL,Fulham FC,2011
-PL,Tottenham Hotspur FC,2037
-PL,Crystal Palace FC,2147
-PL,Nottingham Forest FC,2033
-PL,West Ham United FC,1984
-PL,Burnley FC,1952
-PL,Wolverhampton Wanderers FC,1987
-BL1,Bayer 04 Leverkusen,2158
-BL1,FC Bayern München,2257
-BL1,Borussia Dortmund,2181
-BL1,RB Leipzig,2029
-BL1,VfB Stuttgart,2045
-BL1,Eintracht Frankfurt,2059
-BL1,SC Freiburg,1976
-BL1,1. FSV Mainz 05,2010
-BL1,1. FC Heidenheim 1846,1839
-BL1,TSG 1899 Hoffenheim,1889
-BL1,1. FC Union Berlin,1890
-BL1,SV Werder Bremen,1971
-BL1,VfL Wolfsburg,1947
-BL1,Borussia Mönchengladbach,1923
-BL1,FC Augsburg,1907
-BL1,FC St. Pauli 1910,1855
-BL1,Hamburger SV,1835
-BL1,1. FC Köln,1839
-SA,FC Internazionale Milano,2248
-SA,AC Milan,2111
-SA,Como 1907,1902
-SA,AS Roma,2118
-SA,SSC Napoli,2118
-SA,Juventus FC,2082
-SA,Atalanta BC,2126
-SA,SS Lazio,2070
-SA,US Sassuolo Calcio,1828
-SA,Bologna FC 1909,2062
-SA,Parma Calcio 1913,1845
-SA,Genoa CFC,1916
-SA,ACF Fiorentina,2024
-SA,Udinese Calcio,1862
-SA,Cagliari Calcio,1839
-SA,US Cremonese,1755
-SA,US Lecce,1808
-SA,Torino FC,1920
-SA,AC Pisa 1909,1755
-SA,Hellas Verona FC,1827
-PD,FC Barcelona,2312
-PD,Real Madrid CF,2257
-PD,Villarreal CF,2100
-PD,Club Atlético de Madrid,2180
-PD,Real Betis Balompié,2038
-PD,RC Celta de Vigo,1993
-PD,RCD Espanyol de Barcelona,1918
-PD,Athletic Club,2083
-PD,CA Osasuna,2005
-PD,Real Sociedad de Fútbol,1982
-PD,Girona FC,1906
-PD,Sevilla FC,1916
-PD,Getafe CF,1909
-PD,Deportivo Alavés,1936
-PD,Rayo Vallecano de Madrid,1953
-PD,Valencia CF,1973
-PD,Elche CF,1851
-PD,RCD Mallorca,1924
-PD,Levante UD,1869
-PD,Real Oviedo,1848
-FL1,Paris Saint-Germain FC,2334
-FL1,Racing Club de Lens,1955
-FL1,Olympique Lyonnais,2036
-FL1,Olympique de Marseille,2036
-FL1,Lille OSC,2073
-FL1,Stade Rennais FC 1901,1922
-FL1,RC Strasbourg Alsace,1960
-FL1,AS Monaco FC,2044
-FL1,FC Lorient,1916
-FL1,Toulouse FC,1894
-FL1,Stade Brestois 29,1937
-FL1,Angers SCO,1781
-FL1,Le Havre AC,1769
-FL1,OGC Nice,1977
-FL1,Paris FC,1772
-FL1,AJ Auxerre,1870
-FL1,FC Nantes,1821
-FL1,FC Metz,1816
-PPL,FC Porto,2004
-PPL,Sporting Clube de Portugal,2136
-PPL,Sport Lisboa e Benfica,2123
-PPL,Sporting Clube de Braga,1964
-PPL,Gil Vicente FC,1710
-PPL,FC Famalicão,1793
-PPL,GD Estoril Praia,1758
-PPL,Moreirense FC,1753
-PPL,Vitória SC,1875
-PPL,FC Alverca,1656
-PPL,FC Arouca,1748
-PPL,CF Estrela da Amadora,1623
-PPL,Casa Pia AC,1738
-PPL,CD Nacional,1673
-PPL,Rio Ave FC,1738
-PPL,CD Santa Clara,1799
-PPL,CD Tondela,1656
-PPL,AVS,1603
-ELC,Coventry City FC,1739
-ELC,Middlesbrough FC,1722
-ELC,Millwall FC,1734
-ELC,Ipswich Town FC,1818
-ELC,Hull City AFC,1671
-ELC,Wrexham AFC,1665
-ELC,Southampton FC,1753
-ELC,Derby County FC,1672
-ELC,Watford FC,1657
-ELC,Bristol City FC,1719
-ELC,Birmingham City FC,1779
-ELC,Preston North End FC,1670
-ELC,Sheffield United FC,1825
-ELC,Stoke City FC,1670
-ELC,Queens Park Rangers FC,1677
-ELC,Swansea City AFC,1699
-ELC,Norwich City FC,1690
-ELC,Charlton Athletic FC,1662
-ELC,Leicester City FC,1821
-ELC,Blackburn Rovers FC,1711
-ELC,Portsmouth FC,1685
-ELC,West Bromwich Albion FC,1723
-ELC,Oxford United FC,1639
-ELC,Sheffield Wednesday FC,1700
+season,competition,team,rating
+2025,DED,PSV,2093
+2025,DED,Feyenoord Rotterdam,2028
+2025,DED,AFC Ajax,1937
+2025,DED,AZ,1917
+2025,DED,FC Twente '65,1838
+2025,DED,FC Utrecht,1825
+2025,DED,Go Ahead Eagles,1763
+2025,DED,NEC,1741
+2025,DED,Sparta Rotterdam,1715
+2025,DED,PEC Zwolle,1691
+2025,DED,FC Groningen,1659
+2025,DED,SC Heerenveen,1668
+2025,DED,Fortuna Sittard,1630
+2025,DED,Heracles Almelo,1660
+2025,DED,SBV Excelsior,1573
+2025,DED,Telstar 1963,1486
+2025,DED,FC Volendam,1538
+2025,DED,NAC Breda,1530
+2025,PL,Arsenal FC,2270
+2025,PL,Manchester City FC,2243
+2025,PL,Aston Villa FC,2167
+2025,PL,Chelsea FC,2184
+2025,PL,Manchester United FC,2154
+2025,PL,Brentford FC,2038
+2025,PL,Liverpool FC,2273
+2025,PL,AFC Bournemouth,2054
+2025,PL,Everton FC,2027
+2025,PL,Newcastle United FC,2154
+2025,PL,Sunderland AFC,1735
+2025,PL,Brighton & Hove Albion FC,2112
+2025,PL,Leeds United FC,1935
+2025,PL,Fulham FC,2011
+2025,PL,Tottenham Hotspur FC,2037
+2025,PL,Crystal Palace FC,2147
+2025,PL,Nottingham Forest FC,2033
+2025,PL,West Ham United FC,1984
+2025,PL,Burnley FC,1952
+2025,PL,Wolverhampton Wanderers FC,1987
+2025,BL1,Bayer 04 Leverkusen,2158
+2025,BL1,FC Bayern München,2257
+2025,BL1,Borussia Dortmund,2181
+2025,BL1,RB Leipzig,2029
+2025,BL1,VfB Stuttgart,2045
+2025,BL1,Eintracht Frankfurt,2059
+2025,BL1,SC Freiburg,1976
+2025,BL1,1. FSV Mainz 05,2010
+2025,BL1,1. FC Heidenheim 1846,1839
+2025,BL1,TSG 1899 Hoffenheim,1889
+2025,BL1,1. FC Union Berlin,1890
+2025,BL1,SV Werder Bremen,1971
+2025,BL1,VfL Wolfsburg,1947
+2025,BL1,Borussia Mönchengladbach,1923
+2025,BL1,FC Augsburg,1907
+2025,BL1,FC St. Pauli 1910,1855
+2025,BL1,Hamburger SV,1835
+2025,BL1,1. FC Köln,1839
+2025,SA,FC Internazionale Milano,2248
+2025,SA,AC Milan,2111
+2025,SA,Como 1907,1902
+2025,SA,AS Roma,2118
+2025,SA,SSC Napoli,2118
+2025,SA,Juventus FC,2082
+2025,SA,Atalanta BC,2126
+2025,SA,SS Lazio,2070
+2025,SA,US Sassuolo Calcio,1828
+2025,SA,Bologna FC 1909,2062
+2025,SA,Parma Calcio 1913,1845
+2025,SA,Genoa CFC,1916
+2025,SA,ACF Fiorentina,2024
+2025,SA,Udinese Calcio,1862
+2025,SA,Cagliari Calcio,1839
+2025,SA,US Cremonese,1755
+2025,SA,US Lecce,1808
+2025,SA,Torino FC,1920
+2025,SA,AC Pisa 1909,1755
+2025,SA,Hellas Verona FC,1827
+2025,PD,FC Barcelona,2312
+2025,PD,Real Madrid CF,2257
+2025,PD,Villarreal CF,2100
+2025,PD,Club Atlético de Madrid,2180
+2025,PD,Real Betis Balompié,2038
+2025,PD,RC Celta de Vigo,1993
+2025,PD,RCD Espanyol de Barcelona,1918
+2025,PD,Athletic Club,2083
+2025,PD,CA Osasuna,2005
+2025,PD,Real Sociedad de Fútbol,1982
+2025,PD,Girona FC,1906
+2025,PD,Sevilla FC,1916
+2025,PD,Getafe CF,1909
+2025,PD,Deportivo Alavés,1936
+2025,PD,Rayo Vallecano de Madrid,1953
+2025,PD,Valencia CF,1973
+2025,PD,Elche CF,1851
+2025,PD,RCD Mallorca,1924
+2025,PD,Levante UD,1869
+2025,PD,Real Oviedo,1848
+2025,FL1,Paris Saint-Germain FC,2334
+2025,FL1,Racing Club de Lens,1955
+2025,FL1,Olympique Lyonnais,2036
+2025,FL1,Olympique de Marseille,2036
+2025,FL1,Lille OSC,2073
+2025,FL1,Stade Rennais FC 1901,1922
+2025,FL1,RC Strasbourg Alsace,1960
+2025,FL1,AS Monaco FC,2044
+2025,FL1,FC Lorient,1916
+2025,FL1,Toulouse FC,1894
+2025,FL1,Stade Brestois 29,1937
+2025,FL1,Angers SCO,1781
+2025,FL1,Le Havre AC,1769
+2025,FL1,OGC Nice,1977
+2025,FL1,Paris FC,1772
+2025,FL1,AJ Auxerre,1870
+2025,FL1,FC Nantes,1821
+2025,FL1,FC Metz,1816
+2025,PPL,FC Porto,2004
+2025,PPL,Sporting Clube de Portugal,2136
+2025,PPL,Sport Lisboa e Benfica,2123
+2025,PPL,Sporting Clube de Braga,1964
+2025,PPL,Gil Vicente FC,1710
+2025,PPL,FC Famalicão,1793
+2025,PPL,GD Estoril Praia,1758
+2025,PPL,Moreirense FC,1753
+2025,PPL,Vitória SC,1875
+2025,PPL,FC Alverca,1656
+2025,PPL,FC Arouca,1748
+2025,PPL,CF Estrela da Amadora,1623
+2025,PPL,Casa Pia AC,1738
+2025,PPL,CD Nacional,1673
+2025,PPL,Rio Ave FC,1738
+2025,PPL,CD Santa Clara,1799
+2025,PPL,CD Tondela,1656
+2025,PPL,AVS,1603
+2025,ELC,Coventry City FC,1739
+2025,ELC,Middlesbrough FC,1722
+2025,ELC,Millwall FC,1734
+2025,ELC,Ipswich Town FC,1818
+2025,ELC,Hull City AFC,1671
+2025,ELC,Wrexham AFC,1665
+2025,ELC,Southampton FC,1753
+2025,ELC,Derby County FC,1672
+2025,ELC,Watford FC,1657
+2025,ELC,Bristol City FC,1719
+2025,ELC,Birmingham City FC,1779
+2025,ELC,Preston North End FC,1670
+2025,ELC,Sheffield United FC,1825
+2025,ELC,Stoke City FC,1670
+2025,ELC,Queens Park Rangers FC,1677
+2025,ELC,Swansea City AFC,1699
+2025,ELC,Norwich City FC,1690
+2025,ELC,Charlton Athletic FC,1662
+2025,ELC,Leicester City FC,1821
+2025,ELC,Blackburn Rovers FC,1711
+2025,ELC,Portsmouth FC,1685
+2025,ELC,West Bromwich Albion FC,1723
+2025,ELC,Oxford United FC,1639
+2025,ELC,Sheffield Wednesday FC,1700
+2026,DED,ADO Den Haag,1600
+2026,DED,AFC Ajax,1882
+2026,DED,AZ,1825
+2026,DED,FC Groningen,1718
+2026,DED,FC Twente '65,1867
+2026,DED,FC Utrecht,1817
+2026,DED,Feyenoord Rotterdam,1947
+2026,DED,Fortuna Sittard,1634
+2026,DED,Go Ahead Eagles,1714
+2026,DED,NEC,1818
+2026,DED,PEC Zwolle,1646
+2026,DED,PSV,2090
+2026,DED,SBV Excelsior,1640
+2026,DED,SC Cambuur-Leeuwarden,1600
+2026,DED,SC Heerenveen,1741
+2026,DED,Sparta Rotterdam,1669
+2026,DED,Telstar 1963,1625
+2026,DED,Willem II Tilburg,1600
+2026,PL,AFC Bournemouth,2122
+2026,PL,Arsenal FC,2304
+2026,PL,Aston Villa FC,2143
+2026,PL,Brentford FC,2073
+2026,PL,Brighton & Hove Albion FC,2096
+2026,PL,Chelsea FC,2088
+2026,PL,Coventry City FC,1739
+2026,PL,Crystal Palace FC,2049
+2026,PL,Everton FC,2036
+2026,PL,Fulham FC,2047
+2026,PL,Hull City AFC,1671
+2026,PL,Ipswich Town FC,1818
+2026,PL,Leeds United FC,2027
+2026,PL,Liverpool FC,2168
+2026,PL,Manchester City FC,2271
+2026,PL,Manchester United FC,2210
+2026,PL,Newcastle United FC,2081
+2026,PL,Nottingham Forest FC,2061
+2026,PL,Sunderland AFC,1955
+2026,PL,Tottenham Hotspur FC,2000
+2026,ELC,Birmingham City FC,1732
+2026,ELC,Blackburn Rovers FC,1677
+2026,ELC,Bolton Wanderers FC,1650
+2026,ELC,Bristol City FC,1691
+2026,ELC,Burnley FC,1871
+2026,ELC,Cardiff City FC,1650
+2026,ELC,Charlton Athletic FC,1642
+2026,ELC,Derby County FC,1735
+2026,ELC,Lincoln City FC,1650
+2026,ELC,Middlesbrough FC,1773
+2026,ELC,Millwall FC,1792
+2026,ELC,Norwich City FC,1756
+2026,ELC,Portsmouth FC,1690
+2026,ELC,Preston North End FC,1661
+2026,ELC,Queens Park Rangers FC,1658
+2026,ELC,Sheffield United FC,1735
+2026,ELC,Southampton FC,1854
+2026,ELC,Stoke City FC,1627
+2026,ELC,Swansea City AFC,1726
+2026,ELC,Watford FC,1634
+2026,ELC,West Bromwich Albion FC,1685
+2026,ELC,West Ham United FC,1998
+2026,ELC,Wolverhampton Wanderers FC,1897
+2026,ELC,Wrexham AFC,1733
+2026,BL1,1. FC Köln,1848
+2026,BL1,1. FC Union Berlin,1900
+2026,BL1,1. FSV Mainz 05,1972
+2026,BL1,Bayer 04 Leverkusen,2109
+2026,BL1,Borussia Dortmund,2195
+2026,BL1,Borussia Mönchengladbach,1932
+2026,BL1,Eintracht Frankfurt,1983
+2026,BL1,FC Augsburg,1925
+2026,BL1,FC Bayern München,2328
+2026,BL1,FC Schalke 04,1850
+2026,BL1,Hamburger SV,1885
+2026,BL1,RB Leipzig,2071
+2026,BL1,SC Freiburg,1977
+2026,BL1,SC Paderborn 07,1850
+2026,BL1,SV 07 Elversberg,1850
+2026,BL1,SV Werder Bremen,1885
+2026,BL1,TSG 1899 Hoffenheim,2000
+2026,BL1,VfB Stuttgart,2097
+2026,SA,AC Milan,2072
+2026,SA,AC Monza,1850
+2026,SA,ACF Fiorentina,1967
+2026,SA,AS Roma,2120
+2026,SA,Atalanta BC,2065
+2026,SA,Bologna FC 1909,1999
+2026,SA,Cagliari Calcio,1869
+2026,SA,Como 1907,2068
+2026,SA,FC Internazionale Milano,2250
+2026,SA,Frosinone Calcio,1850
+2026,SA,Genoa CFC,1897
+2026,SA,Juventus FC,2087
+2026,SA,Parma Calcio 1913,1878
+2026,SA,SS Lazio,2008
+2026,SA,SSC Napoli,2112
+2026,SA,Torino FC,1902
+2026,SA,US Lecce,1836
+2026,SA,US Sassuolo Calcio,1901
+2026,SA,Udinese Calcio,1933
+2026,SA,Venezia FC,1850
+2026,PD,Athletic Club,1968
+2026,PD,CA Osasuna,1944
+2026,PD,Club Atlético de Madrid,2120
+2026,PD,Deportivo Alavés,1926
+2026,PD,Elche CF,1908
+2026,PD,FC Barcelona,2314
+2026,PD,Getafe CF,1958
+2026,PD,Levante UD,1923
+2026,PD,Málaga CF,1900
+2026,PD,RC Celta de Vigo,2003
+2026,PD,RC Deportivo La Coruña,1900
+2026,PD,RCD Espanyol de Barcelona,1918
+2026,PD,Rayo Vallecano de Madrid,1995
+2026,PD,Real Betis Balompié,2062
+2026,PD,Real Madrid CF,2248
+2026,PD,Real Racing Club de Santander,1900
+2026,PD,Real Sociedad de Fútbol,1973
+2026,PD,Sevilla FC,1908
+2026,PD,Valencia CF,1998
+2026,PD,Villarreal CF,2111
+2026,FL1,AJ Auxerre,1884
+2026,FL1,AS Monaco FC,2001
+2026,FL1,Angers SCO,1802
+2026,FL1,ES Troyes AC,1850
+2026,FL1,FC Lorient,1931
+2026,FL1,Le Havre AC,1829
+2026,FL1,Le Mans FC,1850
+2026,FL1,Lille OSC,2052
+2026,FL1,OGC Nice,1869
+2026,FL1,Olympique Lyonnais,2020
+2026,FL1,Olympique de Marseille,2015
+2026,FL1,Paris FC,1891
+2026,FL1,Paris Saint-Germain FC,2257
+2026,FL1,RC Strasbourg Alsace,1981
+2026,FL1,Racing Club de Lens,2061
+2026,FL1,Stade Brestois 29,1882
+2026,FL1,Stade Rennais FC 1901,2007
+2026,FL1,Toulouse FC,1920
+2026,PPL,Académico de Viseu FC,1675
+2026,PPL,CD Nacional,1689
+2026,PPL,CD Santa Clara,1750
+2026,PPL,CF Estrela da Amadora,1643
+2026,PPL,CS Marítimo,1675
+2026,PPL,Casa Pia AC,1673
+2026,PPL,FC Alverca,1697
+2026,PPL,FC Arouca,1757
+2026,PPL,FC Famalicão,1851
+2026,PPL,FC Porto,2078
+2026,PPL,GD Estoril Praia,1752
+2026,PPL,Gil Vicente FC,1766
+2026,PPL,Moreirense FC,1737
+2026,PPL,Rio Ave FC,1701
+2026,PPL,Sport Lisboa e Benfica,2136
+2026,PPL,Sporting Clube de Braga,1944
+2026,PPL,Sporting Clube de Portugal,2143
+2026,PPL,Vitória SC,1772

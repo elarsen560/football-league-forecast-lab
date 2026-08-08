@@ -50,7 +50,7 @@ COMPETITION_OPTIONS = {
     "Primeira Liga": "PPL",
 }
 COMPETITION_NAME_BY_CODE = {code: name for name, code in COMPETITION_OPTIONS.items()}
-SEASON_OPTIONS = [2025]
+SEASON_OPTIONS = [2025, 2026]
 MONTE_CARLO_MIN = 100
 MONTE_CARLO_MAX = 20000
 MONTE_CARLO_DEFAULT = 10000
@@ -431,16 +431,29 @@ def compute_global_ratings_cached(
             [m for m in matches if m.get("status") == FINISHED_STATUS],
             key=lambda m: m.get("utc_date") or "",
         )
-        if not finished_matches:
+        fixture_teams = {
+            team
+            for match in matches
+            for team in (match.get("home_team"), match.get("away_team"))
+            if team
+        }
+        if not fixture_teams:
             continue
-        comp_starting_ratings, _ = load_starting_ratings_csv(competition=competition_code)
+        comp_starting_ratings, _ = load_starting_ratings_csv(
+            competition=competition_code,
+            season=season,
+        )
         comp_home_advantage = ha_map.get(competition_code, DEFAULT_HOME_ADVANTAGE)
-        ratings = compute_elo_ratings(
+        updated_ratings = compute_elo_ratings(
             finished_matches,
             comp_starting_ratings,
             include_pregame=False,
             home_advantage=comp_home_advantage,
         )
+        ratings = {
+            team: updated_ratings.get(team, comp_starting_ratings.get(team, DEFAULT_ELO))
+            for team in fixture_teams
+        }
         for team, raw_elo in ratings.items():
             global_rows.append(
                 {
@@ -533,21 +546,25 @@ def fetch_matches_cached(competition: str, season: int) -> tuple[list[dict], str
 
 def load_starting_ratings_csv(
     competition: str,
+    season: int,
     path: str = "starting_elo.csv",
 ) -> tuple[dict[str, float], str | None]:
-    """Load competition-filtered seed Elo ratings from CSV."""
+    """Load competition- and season-filtered seed Elo ratings from CSV."""
     starting_ratings: dict[str, float] = {}
     mtime = _file_mtime(path)
     try:
         rows = _load_starting_elo_csv_cached(path, mtime)
         for row in rows:
+            row_season = row.get("season")
             row_competition = row.get("competition")
             team = row.get("team")
             rating = row.get("rating")
-            if row_competition is None or team is None or rating is None:
-                raise ValueError("CSV must include competition, team and rating columns")
-            if row_competition != competition:
+            if row_season is None or row_competition is None or team is None or rating is None:
+                raise ValueError("CSV must include season, competition, team and rating columns")
+            if int(row_season) != season or row_competition != competition:
                 continue
+            if team in starting_ratings:
+                raise ValueError("CSV contains duplicate team rows for a competition and season")
             starting_ratings[team] = float(rating)
         return starting_ratings, None
     except FileNotFoundError:
@@ -625,7 +642,7 @@ def _run_exception_logging_self_test() -> None:
             with open(bad_csv_path, "w", encoding="utf-8", newline="") as f:
                 f.write("competition,team,rating\nPL,Team A,not-a-number\n")
 
-            ratings, info = load_starting_ratings_csv(competition="PL", path=bad_csv_path)
+            ratings, info = load_starting_ratings_csv(competition="PL", season=2025, path=bad_csv_path)
             assert ratings == {}, "Fallback should return empty ratings on parse failure"
             assert info == INVALID_STARTING_ELO_MSG, "Fallback info message should remain unchanged"
             assert any(
@@ -796,12 +813,22 @@ def compute_season_context(
 ) -> dict:
     """Compute all season-scoped derived structures used by UI tabs."""
     finished_matches, completed_matches, upcoming_matches = split_matches_by_status(stored_matches)
-    ratings, pregame_ratings = compute_elo_ratings(
+    updated_ratings, pregame_ratings = compute_elo_ratings(
         finished_matches,
         starting_ratings,
         include_pregame=True,
         home_advantage=home_advantage,
     )
+    fixture_teams = {
+        team
+        for match in stored_matches
+        for team in (match.get("home_team"), match.get("away_team"))
+        if team
+    }
+    ratings = {
+        team: updated_ratings.get(team, starting_ratings.get(team, DEFAULT_ELO))
+        for team in fixture_teams
+    }
 
     probabilities_table = []
     upcoming_probabilities = []
@@ -943,7 +970,7 @@ competition_label = st.selectbox(
     index=0,
 )
 competition = COMPETITION_OPTIONS[competition_label]
-season = st.selectbox("Season", options=SEASON_OPTIONS, index=0)
+season = st.selectbox("Season", options=SEASON_OPTIONS, index=len(SEASON_OPTIONS) - 1)
 data_last_updated_display = "Unavailable"
 try:
     fetched_matches, fetched_at_utc = fetch_matches_cached(competition=competition, season=int(season))
@@ -963,7 +990,10 @@ st.caption(f"Data last updated: {data_last_updated_display} (refreshes hourly)")
 
 stored_matches = get_matches(competition=competition, season=int(season))
 
-starting_ratings, starting_ratings_info = load_starting_ratings_csv(competition=competition)
+starting_ratings, starting_ratings_info = load_starting_ratings_csv(
+    competition=competition,
+    season=int(season),
+)
 if starting_ratings_info:
     st.info(starting_ratings_info)
 
@@ -1887,7 +1917,10 @@ with diagnostics_tab:
                 )
                 aggregate_refresh_failures.append(comp_code)
             comp_matches = get_matches(comp_code, int(season))
-            comp_starting_ratings, _ = load_starting_ratings_csv(competition=comp_code)
+            comp_starting_ratings, _ = load_starting_ratings_csv(
+                competition=comp_code,
+                season=int(season),
+            )
             comp_home_advantage = ha_map.get(comp_code, DEFAULT_HOME_ADVANTAGE)
             comp_context = compute_season_context(
                 comp_matches,

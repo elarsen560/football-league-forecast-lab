@@ -16,7 +16,7 @@ Streamlit app for league forecasting using football-data.org match data, SQLite 
 
 ## Current scope
 
-- **Season support:** 2025 only.
+- **Season support:** 2025 and 2026 (season start years).
 - **Competition support:**
   - Eredivisie (`DED`)
   - Premier League (`PL`)
@@ -38,7 +38,7 @@ Streamlit app for league forecasting using football-data.org match data, SQLite 
 - `elo.py`  
   Elo rating updates and match probability model.
 - `starting_elo.csv`  
-  Seed Elo ratings by competition/team.
+  Seed Elo ratings by season/competition/team.
 - `model_config.csv`  
   League-specific home-advantage config.
 - `soccer.db`  
@@ -97,6 +97,7 @@ Strict instructions and Obsidian Vault filepath + directory structure is specifi
 
 Required columns:
 
+- `season`
 - `competition`
 - `team`
 - `rating`
@@ -104,15 +105,28 @@ Required columns:
 Example:
 
 ```csv
-competition,team,rating
-PL,Arsenal FC,1835
-DED,PSV,1780
+season,competition,team,rating
+2025,PL,Arsenal FC,1835
+2026,DED,PSV,1780
 ```
 
 Behavior:
-- Ratings are filtered by selected competition.
+- Ratings are filtered by selected season and competition.
+- Each season has an independent opening-rating snapshot. Returning teams may carry
+  forward their prior season's final Elo; newly promoted teams use explicit seed rows.
 - Missing teams fall back to default Elo (`1800`).
 - Missing/malformed file falls back to defaults with Streamlit info message.
+
+#### 2026 opening-seed policy
+
+- Returning teams use their final 2025 app Elo.
+- Premier League promotees use their final 2025 Championship Elo; teams relegated
+  from the Premier League into the Championship use their final 2025 Premier League Elo.
+- Other promoted teams use a league-relative manual starting value, approximating
+  teams just above the prior season's relegation zone: DED `1580`, ELC `1650`,
+  BL1/SA/FL1 `1850`, PD `1900`, and PPL `1675`. DED values are adjusted from an
+  external Elo source to this app's scale.
+- These seed values are intentionally editable when a preferred external source is available.
 
 ### `model_config.csv`
 

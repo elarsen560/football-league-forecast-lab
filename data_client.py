@@ -1,10 +1,27 @@
 import json
 import os
+from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 BASE_URL = "https://api.football-data.org/v4"
+
+
+def _normalize_status(status: object, full_time: dict) -> object:
+    """Normalize provider date-string placeholders for scoreless scheduled fixtures."""
+    if (
+        isinstance(status, str)
+        and full_time.get("home") is None
+        and full_time.get("away") is None
+    ):
+        try:
+            datetime.fromisoformat(status.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+        else:
+            return "SCHEDULED"
+    return status
 
 
 def fetch_matches(competition: str = "DED", season: int = 2025) -> list[dict]:
@@ -35,7 +52,7 @@ def fetch_matches(competition: str = "DED", season: int = 2025) -> list[dict]:
                 "competition": competition,
                 "season": season,
                 "utc_date": match.get("utcDate"),
-                "status": match.get("status"),
+                "status": _normalize_status(match.get("status"), full_time),
                 "matchday": match.get("matchday"),
                 "home_team": match.get("homeTeam", {}).get("name"),
                 "away_team": match.get("awayTeam", {}).get("name"),
